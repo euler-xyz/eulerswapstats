@@ -341,8 +341,8 @@ def main():
             
             print(f"Net NAV: ${nav:,.2f}")
             print(f"\nPositions:")
-            print(f"  USDC: {pos['asset0']['net']:,.2f} @ ${pos['asset0']['price']:.6f}")
-            print(f"  USDT: {pos['asset1']['net']:,.2f} @ ${pos['asset1']['price']:.6f}")
+            print(f"  {pos['asset0']['symbol']}: {pos['asset0']['net']:,.2f} @ ${pos['asset0']['price']:.6f}")
+            print(f"  {pos['asset1']['symbol']}: {pos['asset1']['net']:,.2f} @ ${pos['asset1']['price']:.6f}")
             
     except Exception as e:
         print(f"Error: {e}", file=sys.stderr)
