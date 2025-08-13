@@ -75,3 +75,18 @@ python findpool.py --token0 0x66a1e37c9b0eaddca17d3662d6c05f4decf3e110 --token1 
 ```
 
 Finds pools containing the specified tokens, shows active/inactive status and last activity.
+
+---
+
+# poolinfo.py
+
+Get detailed deployment parameters and configuration for a pool.
+
+## Usage
+
+```bash
+# Get pool information
+python poolinfo.py --pool 0x29bE2d4b843DA604665C2c5C46D596890303E8a8 --chain 1
+```
+
+Shows deployment parameters, fees, concentration, vaults, reserves, volume, and APY.
