@@ -60,3 +60,18 @@ Annualized: 12.19%
 Net NAV = Vault assets - Vault borrowed
 
 This represents the actual economic position after accounting for leverage, matching what euler.finance displays as the position NAV.
+
+---
+
+# findpool.py
+
+Find EulerSwap pools by token pair, including uninstalled pools.
+
+## Usage
+
+```bash
+# Find all pools for a token pair
+python findpool.py --token0 0x66a1e37c9b0eaddca17d3662d6c05f4decf3e110 --token1 0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48 --chain 1
+```
+
+Finds pools containing the specified tokens, shows active/inactive status and last activity.
