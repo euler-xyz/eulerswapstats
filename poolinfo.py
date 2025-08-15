@@ -202,11 +202,30 @@ def main():
         dec0 = int(pool_data.get("asset0Decimals", 18))
         dec1 = int(pool_data.get("asset1Decimals", 18))
         
+        # Get last activity first
+        last_activity = fetch_last_activity(args.graphql, args.chain, args.pool)
+        
         # Check current status
         current_status = fetch_current_status(args.rest_api, args.chain, args.pool)
         
-        # Get last activity
-        last_activity = fetch_last_activity(args.graphql, args.chain, args.pool)
+        # If inactive, try to get last known status from historical data
+        if not current_status and last_activity:
+            try:
+                # Fetch historical data at last activity block
+                import requests
+                hist_url = f"{args.rest_api}?chainId={args.chain}&blockNumber={last_activity['blockNumber']}"
+                r = requests.get(hist_url, timeout=30)
+                r.raise_for_status()
+                pools = r.json()
+                if not isinstance(pools, list):
+                    pools = pools.get("data", [pools]) if isinstance(pools, dict) else [pools]
+                for p in pools:
+                    if p.get("pool", "").lower() == args.pool.lower():
+                        current_status = p
+                        current_status['isHistorical'] = True
+                        break
+            except:
+                pass
         
         # Get swap count
         swap_count = fetch_swap_count(args.graphql, args.chain, args.pool)
@@ -297,7 +316,7 @@ def main():
             if current_status and current_status.get('conc0'):
                 conc0 = float(current_status.get('conc0', 0)) / 1e18 * 100
                 conc1 = float(current_status.get('conc1', 0)) / 1e18 * 100
-                print(f"\nConcentration:")
+                print(f"\nConcentration{' (at last activity)' if current_status.get('isHistorical') else ''}:")
                 print(f"  {symbol0}: {conc0:.4f}%")
                 print(f"  {symbol1}: {conc1:.4f}%")
             
