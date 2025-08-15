@@ -113,8 +113,6 @@ def fetch_last_activity(graphql: str, chain: int, pool: str) -> Optional[Dict[st
           timestamp
           reserve0
           reserve1
-          fee0
-          fee1
         }}
       }}
     }}
@@ -212,20 +210,24 @@ def main():
         if not current_status and last_activity:
             try:
                 # Fetch historical data at last activity block
-                import requests
                 hist_url = f"{args.rest_api}?chainId={args.chain}&blockNumber={last_activity['blockNumber']}"
                 r = requests.get(hist_url, timeout=30)
                 r.raise_for_status()
                 pools = r.json()
                 if not isinstance(pools, list):
                     pools = pools.get("data", [pools]) if isinstance(pools, dict) else [pools]
+                
+                # Debug: print what we're looking for
+                if args.format == "json":
+                    print(f"Debug: Looking for {args.pool.lower()} in {len(pools)} pools at block {last_activity['blockNumber']}", file=sys.stderr)
+                    
                 for p in pools:
                     if p.get("pool", "").lower() == args.pool.lower():
                         current_status = p
                         current_status['isHistorical'] = True
                         break
-            except:
-                pass
+            except Exception as e:
+                print(f"Warning: Could not fetch historical data: {e}", file=sys.stderr)
         
         # Get swap count
         swap_count = fetch_swap_count(args.graphql, args.chain, args.pool)
@@ -348,8 +350,6 @@ def main():
                 print(f"  Timestamp:   {format_timestamp(int(last_activity['timestamp']))}")
                 if last_activity.get('reserve0'):
                     print(f"  Reserves:    {float(last_activity['reserve0'])/10**dec0:,.2f} / {float(last_activity['reserve1'])/10**dec1:,.2f}")
-                if last_activity.get('fee0') or last_activity.get('fee1'):
-                    print(f"  Fees Collected: {float(last_activity.get('fee0', 0))/10**dec0:.4f} / {float(last_activity.get('fee1', 0))/10**dec1:.4f}")
         
         return 0
         
