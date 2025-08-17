@@ -12,12 +12,15 @@ Usage:
   .venv/bin/python scripts/netnav.py --pool 0xPOOL --chain 1
   .venv/bin/python scripts/netnav.py --pool 0xPOOL --chain 1 --lifespan
   .venv/bin/python scripts/netnav.py --pool 0xPOOL --chain 1 --from-block X --to-block Y
+  
+  # Can also be imported and used as a library:
+  from netnav import get_pool_nav, get_pool_historical_return
 """
 import argparse
 import json
 import sys
 from decimal import Decimal
-from typing import Dict, Any, Tuple, Optional
+from typing import Dict, Any, Tuple, Optional, List
 
 import requests
 
@@ -27,7 +30,17 @@ DEFAULT_RPC_URL = "https://ethereum.publicnode.com"
 
 
 def fetch_pool_data(rest_api: str, chain: int, pool: str, block: int = None) -> Dict[str, Any]:
-    """Fetch pool data from REST API."""
+    """Fetch pool data from REST API.
+    
+    Args:
+        rest_api: REST API endpoint URL
+        chain: Chain ID (1 for mainnet)
+        pool: Pool address
+        block: Optional block number for historical data
+    
+    Returns:
+        Pool data dictionary
+    """
     url = f"{rest_api}?chainId={chain}"
     if block:
         url += f"&blockNumber={block}"
@@ -46,7 +59,18 @@ def fetch_pool_data(rest_api: str, chain: int, pool: str, block: int = None) -> 
 
 
 def fetch_price(graphql: str, chain: int, asset: str, source: str = "oracle", block: int = None) -> Tuple[int, int]:
-    """Fetch price for an asset at or before block. Returns (price, scale)."""
+    """Fetch price for an asset at or before block.
+    
+    Args:
+        graphql: GraphQL endpoint URL
+        chain: Chain ID
+        asset: Asset address
+        source: Price source (default: "oracle")
+        block: Optional block number for historical price
+    
+    Returns:
+        Tuple of (price, scale) where scale is typically 1e8 or 1e18
+    """
     where_clause = f'chainId: {chain}, asset: "{asset.lower()}", source: "{source}"'
     if block:
         where_clause += f', blockNumber_lte: "{block}"'
@@ -81,7 +105,16 @@ def fetch_price(graphql: str, chain: int, asset: str, source: str = "oracle", bl
 
 
 def fetch_pool_created_at(graphql: str, chain: int, pool: str) -> int:
-    """Fetch pool creation timestamp."""
+    """Fetch pool creation timestamp.
+    
+    Args:
+        graphql: GraphQL endpoint URL
+        chain: Chain ID
+        pool: Pool address
+    
+    Returns:
+        Unix timestamp of pool creation
+    """
     query = f"""
     query {{
       eulerSwapFactoryPoolDeployed(chainId: {chain}, pool: "{pool}") {{
@@ -196,8 +229,18 @@ def fetch_token_symbol(graphql_url: str, chain: int, address: str) -> str:
     return fallback_tokens.get(address.lower(), address[:8] + "...")
 
 
-def calculate_net_nav(pool_data: Dict[str, Any], graphql_url: str, chain: int, block: int = None) -> Dict[str, Any]:
-    """Calculate net NAV from vault lending positions."""
+def calculate_net_nav(pool_data: Dict[str, Any], graphql_url: str = DEFAULT_GRAPHQL, chain: int = 1, block: int = None) -> Dict[str, Any]:
+    """Calculate net NAV from vault lending positions.
+    
+    Args:
+        pool_data: Pool data from REST API
+        graphql_url: GraphQL endpoint URL
+        chain: Chain ID
+        block: Optional block number for historical prices
+    
+    Returns:
+        Dictionary with NAV and position details
+    """
     
     # Extract vault data
     vault0 = pool_data["vault0"]
@@ -385,6 +428,169 @@ def main():
         return 1
     
     return 0
+
+
+# ============== Convenience Functions for Dashboard Use ==============
+
+def get_pool_nav(pool_address: str, chain: int = 1, block: int = None) -> float:
+    """
+    Get Net NAV for a pool (simple function for dashboards).
+    
+    Args:
+        pool_address: Pool address
+        chain: Chain ID (default: 1 for mainnet)
+        block: Optional block number for historical NAV
+    
+    Returns:
+        Net NAV in USD
+    """
+    try:
+        pool_data = fetch_pool_data(DEFAULT_REST_API, chain, pool_address, block)
+        result = calculate_net_nav(pool_data, DEFAULT_GRAPHQL, chain, block)
+        return result["nav"]
+    except Exception:
+        return 0.0
+
+
+def get_pool_historical_return(pool_address: str, 
+                              from_block: int, 
+                              to_block: int,
+                              chain: int = 1) -> Dict[str, float]:
+    """
+    Calculate historical return for a pool between two blocks.
+    
+    Args:
+        pool_address: Pool address
+        from_block: Start block
+        to_block: End block
+        chain: Chain ID (default: 1 for mainnet)
+    
+    Returns:
+        Dictionary with return metrics
+    """
+    try:
+        # Fetch data at both blocks
+        start_data = fetch_pool_data(DEFAULT_REST_API, chain, pool_address, from_block)
+        end_data = fetch_pool_data(DEFAULT_REST_API, chain, pool_address, to_block)
+        
+        # Calculate NAVs
+        start_result = calculate_net_nav(start_data, DEFAULT_GRAPHQL, chain, from_block)
+        end_result = calculate_net_nav(end_data, DEFAULT_GRAPHQL, chain, to_block)
+        
+        # Calculate return
+        start_nav = start_result["nav"]
+        end_nav = end_result["nav"]
+        abs_return = end_nav - start_nav
+        pct_return = (abs_return / start_nav * 100) if start_nav != 0 else 0
+        
+        # Calculate time metrics
+        start_ts = int(start_result.get("timestamp", 0))
+        end_ts = int(end_result.get("timestamp", 0))
+        days = (end_ts - start_ts) / 86400 if (end_ts and start_ts) else 0
+        
+        # Annualized return
+        annual_return = 0
+        if days and days > 0 and start_nav > 0:
+            annual_return = ((end_nav / start_nav) ** (365/days) - 1) * 100
+        
+        return {
+            "start_nav": start_nav,
+            "end_nav": end_nav,
+            "absolute_return": abs_return,
+            "percent_return": pct_return,
+            "days": days,
+            "annualized_return": annual_return
+        }
+    except Exception:
+        return {
+            "start_nav": 0,
+            "end_nav": 0,
+            "absolute_return": 0,
+            "percent_return": 0,
+            "days": 0,
+            "annualized_return": 0
+        }
+
+
+def get_pool_lifespan_return(pool_address: str, chain: int = 1) -> Dict[str, Any]:
+    """
+    Calculate return from pool creation to latest available data.
+    
+    Args:
+        pool_address: Pool address
+        chain: Chain ID (default: 1 for mainnet)
+    
+    Returns:
+        Dictionary with lifespan return metrics
+    """
+    try:
+        # Get pool creation timestamp
+        created_at = fetch_pool_created_at(DEFAULT_GRAPHQL, chain, pool_address)
+        
+        # Find creation block
+        created_block = block_at_or_after_timestamp(DEFAULT_RPC_URL, created_at)
+        
+        # Find latest available block
+        head_hex = rpc_call(DEFAULT_RPC_URL, "eth_blockNumber", [])
+        head_num = hex_to_int(head_hex)
+        last_block = find_last_available_block(DEFAULT_REST_API, chain, pool_address, created_block, head_num)
+        
+        if not last_block:
+            raise RuntimeError("No available data found for pool")
+        
+        # Get historical return
+        result = get_pool_historical_return(pool_address, created_block, last_block, chain)
+        result["from_block"] = created_block
+        result["to_block"] = last_block
+        result["created_at"] = created_at
+        
+        return result
+    except Exception as e:
+        return {
+            "error": str(e),
+            "start_nav": 0,
+            "end_nav": 0,
+            "absolute_return": 0,
+            "percent_return": 0,
+            "days": 0,
+            "annualized_return": 0
+        }
+
+
+def get_all_pools_nav(chain: int = 1) -> List[Dict[str, Any]]:
+    """
+    Get Net NAV for all pools on a chain.
+    
+    Args:
+        chain: Chain ID (default: 1 for mainnet)
+    
+    Returns:
+        List of pool data with Net NAV calculated
+    """
+    try:
+        r = requests.get(f"{DEFAULT_REST_API}?chainId={chain}", timeout=30)
+        r.raise_for_status()
+        pools = r.json()
+        
+        if not isinstance(pools, list):
+            pools = pools.get("data", []) if isinstance(pools, dict) else []
+        
+        results = []
+        for pool_data in pools:
+            try:
+                nav_result = calculate_net_nav(pool_data, DEFAULT_GRAPHQL, chain)
+                results.append({
+                    "pool": pool_data["pool"],
+                    "active": pool_data.get("active", False),
+                    "net_nav": nav_result["nav"],
+                    "positions": nav_result["positions"]
+                })
+            except Exception:
+                continue
+        
+        return results
+    except Exception:
+        return []
 
 
 if __name__ == "__main__":
