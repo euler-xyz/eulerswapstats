@@ -512,28 +512,74 @@ def get_pool_historical_return(pool_address: str,
         }
 
 
-def get_pool_lifespan_return(pool_address: str, chain: int = 1) -> Dict[str, Any]:
+def get_pool_lifespan_return(pool_address: str, chain: int = 1, use_cache: bool = True) -> Dict[str, Any]:
     """
     Calculate return from pool creation to latest available data.
     
     Args:
         pool_address: Pool address
         chain: Chain ID (default: 1 for mainnet)
+        use_cache: Whether to use cached pool creation data (default: True)
     
     Returns:
         Dictionary with lifespan return metrics
     """
     try:
-        # Get pool creation timestamp
-        created_at = fetch_pool_created_at(DEFAULT_GRAPHQL, chain, pool_address)
-        
-        # Find creation block
-        created_block = block_at_or_after_timestamp(DEFAULT_RPC_URL, created_at)
+        # Try to use cached version if available
+        if use_cache:
+            try:
+                from pool_cache import get_pool_creation_block
+                created_at, created_block = get_pool_creation_block(pool_address, chain)
+            except ImportError:
+                # Fallback to original functions if cache module not available
+                created_at = fetch_pool_created_at(DEFAULT_GRAPHQL, chain, pool_address)
+                created_block = block_at_or_after_timestamp(DEFAULT_RPC_URL, created_at)
+        else:
+            # Use original functions without caching
+            created_at = fetch_pool_created_at(DEFAULT_GRAPHQL, chain, pool_address)
+            created_block = block_at_or_after_timestamp(DEFAULT_RPC_URL, created_at)
         
         # Find latest available block
         head_hex = rpc_call(DEFAULT_RPC_URL, "eth_blockNumber", [])
         head_num = hex_to_int(head_hex)
-        last_block = find_last_available_block(DEFAULT_REST_API, chain, pool_address, created_block, head_num)
+        
+        # Optimization: Check cache and try current block first
+        last_block = None
+        
+        # First, check if we have a cached last available block (for inactive pools)
+        if use_cache:
+            try:
+                from pool_cache import get_last_available_block, set_last_available_block
+                cached_last = get_last_available_block(pool_address, chain)
+                
+                # If we have a cached block and it's not the head (inactive pool)
+                if cached_last and cached_last < head_num:
+                    try:
+                        # Verify it's still valid
+                        _ = fetch_pool_data(DEFAULT_REST_API, chain, pool_address, cached_last)
+                        last_block = cached_last
+                    except:
+                        pass  # Cache invalid, will search
+            except ImportError:
+                pass  # Cache module not available
+        
+        # If not cached, try current block (for active pools)
+        if not last_block:
+            try:
+                # Try fetching at current block
+                _ = fetch_pool_data(DEFAULT_REST_API, chain, pool_address, head_num)
+                last_block = head_num
+            except:
+                # Fall back to binary search only if current block fails
+                last_block = find_last_available_block(DEFAULT_REST_API, chain, pool_address, created_block, head_num - 1)
+                
+                # Cache the result if it's an inactive pool
+                if use_cache and last_block and last_block < head_num - 100:  # Pool is likely inactive
+                    try:
+                        from pool_cache import set_last_available_block
+                        set_last_available_block(pool_address, chain, last_block)
+                    except:
+                        pass
         
         if not last_block:
             raise RuntimeError("No available data found for pool")

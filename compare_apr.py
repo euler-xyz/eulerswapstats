@@ -4,7 +4,7 @@ Compare APR calculations between v2 REST API and our local calculation.
 
 This script:
 1. Fetches APR data from the v2 REST API
-2. Calculates lifetime APR using net NAV methodology
+2. Calculates lifetime APR using net NAV methodology with actual historical data
 3. Compares the results and identifies discrepancies
 
 Usage:
@@ -18,6 +18,17 @@ from decimal import Decimal
 from typing import Dict, List, Any, Optional, Tuple
 import requests
 from datetime import datetime
+from netnav import (
+    get_pool_nav, 
+    get_pool_lifespan_return,
+    DEFAULT_GRAPHQL,
+    DEFAULT_RPC_URL
+)
+# Use cached versions for pool creation lookups
+from pool_cache import (
+    fetch_pool_created_at,
+    block_at_or_after_timestamp
+)
 
 # API endpoints
 V2_REST_API = "https://index-dev.eul.dev/v2/swap/pools"
@@ -62,68 +73,22 @@ def calculate_net_nav_from_v2(pool_data: Dict[str, Any]) -> Tuple[float, Dict[st
 
 
 def fetch_creation_data(pool_address: str, chain_id: int) -> Optional[Dict[str, Any]]:
-    """Fetch pool creation data from GraphQL."""
-    # First query to get deployment info
-    deployment_query = f"""
-    query {{
-      items: eulerSwapFactoryPoolDeployeds(
-        where: {{chainId: {chain_id}, pool: "{pool_address.lower()}"}}
-        limit: 1
-      ) {{
-        items {{
-          pool
-          createdAt
-          createdAtBlock
-          asset0
-          asset1
-          asset0Decimals
-          asset1Decimals
-        }}
-      }}
-    }}
-    """
-    
-    # Second query to get first swap
-    swap_query = f"""
-    query {{
-      swaps: eulerSwapSwaps(
-        where: {{chainId: {chain_id}, pool: "{pool_address.lower()}"}}
-        orderBy: "timestamp"
-        orderDirection: "asc"
-        limit: 1
-      ) {{
-        items {{
-          blockNumber
-          timestamp
-          reserve0
-          reserve1
-        }}
-      }}
-    }}
-    """
-    
+    """Fetch pool creation data using netnav functions."""
     try:
-        # Get deployment info
-        r = requests.post(GRAPHQL_API, json={"query": deployment_query}, timeout=30)
-        r.raise_for_status()
-        data = r.json()
+        # Get pool creation timestamp
+        created_at = fetch_pool_created_at(DEFAULT_GRAPHQL, chain_id, pool_address)
         
-        deployment_items = data.get('data', {}).get('items', {}).get('items', [])
-        if not deployment_items:
-            return None
+        # Find block at creation time
+        created_block = block_at_or_after_timestamp(DEFAULT_RPC_URL, created_at)
         
-        deployment = deployment_items[0]
+        # Get NAV at creation
+        creation_nav = get_pool_nav(pool_address, chain_id, created_block)
         
-        # Get first swap
-        r = requests.post(GRAPHQL_API, json={"query": swap_query}, timeout=30)
-        r.raise_for_status()
-        data = r.json()
-        
-        swap_items = data.get('data', {}).get('swaps', {}).get('items', [])
-        if swap_items:
-            deployment['firstSwap'] = swap_items[0]
-        
-        return deployment
+        return {
+            'createdAt': created_at,
+            'createdBlock': created_block,
+            'creationNav': creation_nav
+        }
     except Exception as e:
         print(f"Error fetching creation data: {e}", file=sys.stderr)
         return None
@@ -155,9 +120,10 @@ def compare_pool_apr(pool_data: Dict[str, Any], chain_id: int) -> Dict[str, Any]
     result = {
         'pool': pool_address,
         'v2_apr': {},
-        'calculated_apr': None,
-        'current_nav': None,
-        'creation_nav': None,
+        'v2_current_nav': None,
+        'netnav_calculated_apr': None,
+        'netnav_current_nav': None,
+        'netnav_creation_nav': None,
         'age_days': None,
         'discrepancy': None,
         'error': None
@@ -173,59 +139,32 @@ def compare_pool_apr(pool_data: Dict[str, Any], chain_id: int) -> Dict[str, Any]
             '180d': float(apr_data.get('total180d', 0)) / 1e18 * 100
         }
         
-        # Calculate current NAV
-        current_nav, nav_breakdown = calculate_net_nav_from_v2(pool_data)
-        result['current_nav'] = current_nav
-        result['nav_breakdown'] = nav_breakdown
+        # Get V2 API current NAV
+        v2_current_nav, nav_breakdown = calculate_net_nav_from_v2(pool_data)
+        result['v2_current_nav'] = v2_current_nav
+        result['v2_nav_breakdown'] = nav_breakdown
         
-        # Get pool age
-        created_at = int(pool_data.get('createdAt', 0))
-        current_time = int(pool_data.get('blockTimestamp', 0))
-        age_days = (current_time - created_at) / 86400
-        result['age_days'] = age_days
+        # Try to get actual historical data using netnav functions
+        lifespan_data = get_pool_lifespan_return(pool_address, chain_id)
         
-        # Since GraphQL doesn't have historical data, use estimation
-        # For pools < 180 days, the v2 180d APR should be lifetime APR
-        # So we'll reverse-engineer the creation NAV from that
-        
-        if age_days < 180 and result['v2_apr']['180d'] > 0:
-            # Use v2's 180d APR (which is lifetime for young pools) to estimate creation NAV
-            # APR = ((end/start)^(365/days) - 1) * 100
-            # Rearranging: start = end / ((APR/100 + 1)^(days/365))
+        if 'error' not in lifespan_data and lifespan_data['start_nav'] > 0:
+            # We have real historical data from netnav!
+            result['netnav_creation_nav'] = lifespan_data['start_nav']
+            result['netnav_current_nav'] = lifespan_data['end_nav']
+            result['age_days'] = lifespan_data['days']
+            result['netnav_calculated_apr'] = lifespan_data['annualized_return']
+            result['netnav_total_return'] = lifespan_data['percent_return']
             
-            apr_decimal = result['v2_apr']['180d'] / 100
-            if age_days > 0:
-                creation_nav = current_nav / ((1 + apr_decimal) ** (age_days / 365))
-                result['creation_nav'] = creation_nav
-                result['calculated_apr'] = result['v2_apr']['180d']  # Should match
-                result['discrepancy'] = 0.0  # By definition, they match
-                result['comparison_note'] = "Using v2 180d APR as lifetime (pool < 180d)"
+            # Compare with v2 APR
+            if result['age_days'] < 180:
+                result['discrepancy'] = abs(result['netnav_calculated_apr'] - result['v2_apr']['180d'])
+                result['comparison_note'] = "Using NetNAV historical data"
             else:
-                result['error'] = "Pool age is 0 days"
+                result['comparison_note'] = "Pool > 180 days (NetNAV data)"
         else:
-            # For older pools or pools without APR, estimate from current reserves
-            vault0_reserves = float(pool_data['vault0']['reserves']) / (10 ** pool_data['vault0']['decimals'])
-            vault1_reserves = float(pool_data['vault1']['reserves']) / (10 ** pool_data['vault1']['decimals'])
-            
-            # Rough estimate: pools typically grow 2x from creation
-            creation_nav = (vault0_reserves + vault1_reserves) * 0.5
-            result['creation_nav'] = creation_nav
-            
-            if creation_nav > 0 and current_nav > creation_nav and age_days > 0:
-                calculated_apr = calculate_lifetime_apr_simple(
-                    creation_nav,
-                    current_nav,
-                    age_days
-                )
-                result['calculated_apr'] = calculated_apr
-                
-                if age_days < 180:
-                    result['discrepancy'] = abs(calculated_apr - result['v2_apr']['180d'])
-                    result['comparison_note'] = "Estimated creation NAV (no GraphQL data)"
-                else:
-                    result['comparison_note'] = "Pool > 180 days, estimated NAV"
-            else:
-                result['error'] = f"Invalid values for calculation"
+            # No historical data available
+            result['error'] = "Could not fetch NetNAV historical data"
+            result['comparison_note'] = "No NetNAV historical data available"
             
     except Exception as e:
         result['error'] = str(e)
@@ -240,7 +179,7 @@ def format_comparison_table(comparisons: List[Dict[str, Any]]) -> None:
     print("=" * 120)
     
     # Header
-    print(f"{'Pool':<12} {'Age':<8} {'Current NAV':<12} {'v2 180d APR':<12} {'Calc APR':<12} {'Discrepancy':<12} {'Note'}")
+    print(f"{'Pool':<12} {'Age':<8} {'V2 NAV':<12} {'V2 180d APR':<12} {'NetNAV APR':<12} {'Discrepancy':<12} {'Note'}")
     print("-" * 120)
     
     for comp in comparisons:
@@ -250,9 +189,9 @@ def format_comparison_table(comparisons: List[Dict[str, Any]]) -> None:
         
         pool = comp['pool'][:10] + "..."
         age = f"{comp['age_days']:.1f}d" if comp['age_days'] else "N/A"
-        nav = f"${comp['current_nav']:,.0f}" if comp['current_nav'] else "N/A"
+        nav = f"${comp['v2_current_nav']:,.0f}" if comp['v2_current_nav'] else "N/A"
         v2_apr = f"{comp['v2_apr']['180d']:.2f}%" if comp['v2_apr']['180d'] else "0%"
-        calc_apr = f"{comp['calculated_apr']:.2f}%" if comp['calculated_apr'] else "N/A"
+        calc_apr = f"{comp['netnav_calculated_apr']:.2f}%" if comp['netnav_calculated_apr'] else "N/A"
         disc = f"{comp['discrepancy']:.2f}%" if comp['discrepancy'] is not None else "N/A"
         note = comp.get('comparison_note', '')[:30]
         
@@ -271,17 +210,19 @@ def print_detailed_analysis(comparison: Dict[str, Any]) -> None:
     
     print(f"\nPool Metrics:")
     print(f"  Age: {comparison['age_days']:.1f} days")
-    print(f"  Current NAV: ${comparison['current_nav']:,.2f}")
-    if comparison['creation_nav']:
-        print(f"  Creation NAV: ${comparison['creation_nav']:,.2f}")
-        total_return = (comparison['current_nav'] - comparison['creation_nav']) / comparison['creation_nav'] * 100
-        print(f"  Total Return: {total_return:.2f}%")
     
-    if comparison['nav_breakdown']:
-        print(f"\nNAV Breakdown:")
-        print(f"  Total Assets: ${comparison['nav_breakdown']['totalAssets']:,.2f}")
-        print(f"  Total Borrowed: ${comparison['nav_breakdown']['totalBorrowed']:,.2f}")
-        print(f"  Net NAV: ${comparison['nav_breakdown']['netNAV']:,.2f}")
+    print(f"\nV2 API Values:")
+    print(f"  Current NAV: ${comparison['v2_current_nav']:,.2f}")
+    if comparison['v2_nav_breakdown']:
+        print(f"  Total Assets: ${comparison['v2_nav_breakdown']['totalAssets']:,.2f}")
+        print(f"  Total Borrowed: ${comparison['v2_nav_breakdown']['totalBorrowed']:,.2f}")
+    
+    if comparison['netnav_creation_nav'] is not None:
+        print(f"\nNetNAV Calculated Values:")
+        print(f"  Creation NAV: ${comparison['netnav_creation_nav']:,.2f}")
+        print(f"  Current NAV: ${comparison['netnav_current_nav']:,.2f}")
+        if 'netnav_total_return' in comparison:
+            print(f"  Total Return: {comparison['netnav_total_return']:.2f}%")
     
     print(f"\nAPR Comparison:")
     print(f"  v2 API APRs:")
@@ -289,8 +230,8 @@ def print_detailed_analysis(comparison: Dict[str, Any]) -> None:
         if apr != 0:
             print(f"    {period:>4}: {apr:>8.2f}%")
     
-    if comparison['calculated_apr'] is not None:
-        print(f"  Our Calculated Lifetime APR: {comparison['calculated_apr']:.2f}%")
+    if comparison['netnav_calculated_apr'] is not None:
+        print(f"  NetNAV Calculated Lifetime APR: {comparison['netnav_calculated_apr']:.2f}%")
     
     if comparison['discrepancy'] is not None:
         print(f"\nDiscrepancy: {comparison['discrepancy']:.2f}%")
