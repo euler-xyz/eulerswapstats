@@ -9,7 +9,8 @@ from datetime import datetime
 from decimal import Decimal
 import json
 from utils import get_token_symbol, convert_apr_to_percentage, format_reserves, calculate_net_interest
-from netnav import calculate_net_nav, DEFAULT_REST_API, DEFAULT_GRAPHQL
+from netnav import calculate_net_nav, get_pool_lifespan_return, DEFAULT_REST_API, DEFAULT_GRAPHQL
+from pool_cache import get_pool_creation_block
 
 # API endpoints
 V1_API = DEFAULT_REST_API  # "https://index-dev.eul.dev/v1/swap/pools"
@@ -136,12 +137,35 @@ def index():
             # Get V2 data for this pool
             v2_data = v2_lookup.get(pool_addr.lower(), {})
             
+            # Calculate lifetime APY from creation for smaller pools or those with 0% V2 APR
+            calculated_apy = None
+            v2_apr = float(v2_data.get('apr', {}).get('total30d', 0)) if v2_data else 0
+            
+            # Calculate lifetime APY for pools with low/no V2 APR or smaller pools
+            if net_nav > 100 and (v2_apr == 0 or net_nav < 50000):  # Calculate for pools >$100 NAV
+                try:
+                    # Use the lifespan return function which handles all edge cases
+                    lifespan_data = get_pool_lifespan_return(pool_addr, 1, use_cache=True)
+                    
+                    if 'error' not in lifespan_data and lifespan_data.get('annual_return') is not None:
+                        calculated_apy = lifespan_data['annual_return']
+                        
+                        # If APY is 0 but NAV exists and pool is young, it might just be stable
+                        if calculated_apy == 0 and net_nav > 0 and lifespan_data.get('days', 0) < 7:
+                            # For very young pools, show — instead of 0%
+                            calculated_apy = None
+                except Exception as e:
+                    # Pool doesn't have creation data or other error
+                    print(f"Could not calculate lifetime APY for {pool_addr[:10]}...")
+                    calculated_apy = None
+            
             active_pools.append({
                 'pool': pool_addr,
                 'net_nav': net_nav,
                 'positions': positions,
                 'v1_data': pool_v1,
-                'v2_data': v2_data
+                'v2_data': v2_data,
+                'calculated_apy': calculated_apy
             })
             
             total_net_nav += net_nav
@@ -178,6 +202,11 @@ def index():
             apr_val = convert_apr_to_percentage(apr_30d)
             apr_class = "profit" if apr_val > 0 else "loss" if apr_val < 0 else "neutral"
             
+            # Calculated APY
+            calc_apy = p.get('calculated_apy')
+            calc_apy_str = f"{calc_apy:.2f}%" if calc_apy is not None else "—"
+            calc_apy_class = "profit" if calc_apy and calc_apy > 0 else "loss" if calc_apy and calc_apy < 0 else "neutral"
+            
             # Volume and fees from V2 data
             volume_30d = float(v2_data.get('volume', {}).get('total30d', 0)) / 1e8 if v2_data else 0
             fees_30d = float(v2_data.get('fees', {}).get('total30d', 0)) / 1e8 if v2_data else 0
@@ -201,6 +230,7 @@ def index():
                     Td(f"{reserve0:,.2f}", cls="number"),
                     Td(f"{reserve1:,.2f}", cls="number"),
                     Td(f"{apr_val:.2f}%", cls=f"number {apr_class}"),
+                    Td(calc_apy_str, cls=f"number {calc_apy_class}"),
                     Td(f"${volume_30d:,.0f}", cls="number"),
                     Td(f"${fees_30d:,.2f}", cls="number"),
                     Td(f"${net_interest:+,.2f}", cls=f"number {'profit' if net_interest > 0 else 'loss' if net_interest < 0 else 'neutral'}")
@@ -240,7 +270,8 @@ def index():
                         Th("Net NAV"),
                         Th("Net Position 0"),
                         Th("Net Position 1"),
-                        Th("30d APR"),
+                        Th("V2 30d APR"),
+                        Th("Lifetime APY"),
                         Th("30d Volume"),
                         Th("30d Fees"),
                         Th("30d Net Interest")
