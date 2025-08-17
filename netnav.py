@@ -164,6 +164,38 @@ def find_last_available_block(rest_api: str, chain: int, pool: str, start_block:
     return last_ok
 
 
+def fetch_token_symbol(graphql_url: str, chain: int, address: str) -> str:
+    """Fetch token symbol from GraphQL or return short address as fallback."""
+    query = f"""
+    query {{
+        token(chainId: {chain}, address: "{address.lower()}") {{
+            symbol
+        }}
+    }}
+    """
+    
+    try:
+        r = requests.post(graphql_url, json={"query": query}, timeout=10)
+        r.raise_for_status()
+        data = r.json()
+        
+        token_data = data.get("data", {}).get("token")
+        if token_data and token_data.get("symbol"):
+            return token_data["symbol"]
+    except:
+        pass
+    
+    # Fallback to common known tokens if GraphQL fails
+    fallback_tokens = {
+        "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
+        "0xdac17f958d2ee523a2206206994597c13d831ec7": "USDT",
+        "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH",
+        "0xc139190f447e929f090edeb554d95abb8b18ac1c": "RLUSD",
+    }
+    
+    return fallback_tokens.get(address.lower(), address[:8] + "...")
+
+
 def calculate_net_nav(pool_data: Dict[str, Any], graphql_url: str, chain: int, block: int = None) -> Dict[str, Any]:
     """Calculate net NAV from vault lending positions."""
     
@@ -176,6 +208,10 @@ def calculate_net_nav(pool_data: Dict[str, Any], graphql_url: str, chain: int, b
     asset1 = vault1["asset"]
     dec0 = vault0["decimals"]
     dec1 = vault1["decimals"]
+    
+    # Fetch token symbols dynamically
+    symbol0 = fetch_token_symbol(graphql_url, chain, asset0)
+    symbol1 = fetch_token_symbol(graphql_url, chain, asset1)
     
     # Get vault positions (what's borrowed/lent)
     v0_borrowed = int(vault0["accountNav"]["borrowed"])
@@ -205,14 +241,14 @@ def calculate_net_nav(pool_data: Dict[str, Any], graphql_url: str, chain: int, b
         "timestamp": pool_data.get("blockTimestamp"),
         "positions": {
             "asset0": {
-                "symbol": "USDC",  # Could be fetched if needed
+                "symbol": symbol0,
                 "borrowed": v0_borrowed / (10**dec0),
                 "assets": v0_assets / (10**dec0),
                 "net": (v0_assets - v0_borrowed) / (10**dec0),
                 "price": float(Decimal(p0) / Decimal(scale))
             },
             "asset1": {
-                "symbol": "USDT",  # Could be fetched if needed
+                "symbol": symbol1,
                 "borrowed": v1_borrowed / (10**dec1),
                 "assets": v1_assets / (10**dec1),
                 "net": (v1_assets - v1_borrowed) / (10**dec1),
