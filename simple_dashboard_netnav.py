@@ -137,27 +137,23 @@ def index():
             # Get V2 data for this pool
             v2_data = v2_lookup.get(pool_addr.lower(), {})
             
-            # Calculate lifetime APY from creation for smaller pools or those with 0% V2 APR
+            # Calculate lifetime APY for all active pools to show alongside V2 APR
             calculated_apy = None
-            v2_apr = float(v2_data.get('apr', {}).get('total30d', 0)) if v2_data else 0
             
-            # Calculate lifetime APY for pools with low/no V2 APR or smaller pools
-            if net_nav > 100 and (v2_apr == 0 or net_nav < 50000):  # Calculate for pools >$100 NAV
-                try:
-                    # Use the lifespan return function which handles all edge cases
-                    lifespan_data = get_pool_lifespan_return(pool_addr, 1, use_cache=True)
+            try:
+                # Use the lifespan return function which handles all edge cases
+                lifespan_data = get_pool_lifespan_return(pool_addr, 1, use_cache=True)
+                
+                if 'error' not in lifespan_data and lifespan_data.get('annualized_return') is not None:
+                    calculated_apy = lifespan_data['annualized_return']
                     
-                    if 'error' not in lifespan_data and lifespan_data.get('annual_return') is not None:
-                        calculated_apy = lifespan_data['annual_return']
-                        
-                        # If APY is 0 but NAV exists and pool is young, it might just be stable
-                        if calculated_apy == 0 and net_nav > 0 and lifespan_data.get('days', 0) < 7:
-                            # For very young pools, show — instead of 0%
-                            calculated_apy = None
-                except Exception as e:
-                    # Pool doesn't have creation data or other error
-                    print(f"Could not calculate lifetime APY for {pool_addr[:10]}...")
-                    calculated_apy = None
+                    # If APY is 0 but NAV exists and pool is young, it might just be stable
+                    if calculated_apy == 0 and net_nav > 0 and lifespan_data.get('days', 0) < 7:
+                        # For very young pools, show — instead of 0%
+                        calculated_apy = None
+            except Exception as e:
+                # Pool doesn't have creation data or other error - silently skip
+                calculated_apy = None
             
             active_pools.append({
                 'pool': pool_addr,

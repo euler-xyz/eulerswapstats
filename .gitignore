@@ -1,5 +1,6 @@
 .claude/
 fasthtml-llms-ctx-full.txt
 pool_creation_blocks.csv
+token_metadata.csv
 .sesskey
 __pycache__/

@@ -10,7 +10,7 @@ from decimal import Decimal
 import json
 from typing import Dict, List, Optional, Tuple
 import time
-from utils import get_token_symbol, convert_apr_to_percentage, format_nav
+from utils import get_token_symbol, convert_apr_to_percentage, format_nav, format_reserves, calculate_net_interest
 
 # API endpoints
 V2_API = "https://index-dev.eul.dev/v2/swap/pools"
@@ -37,34 +37,19 @@ def cached_fetch(url: str, params: dict = None) -> dict:
     return data
 
 def fetch_creation_nav(pool_addr: str, chain: int = 1) -> Tuple[float, int, datetime]:
-    """Fetch NAV at pool creation using GraphQL"""
-    query = f"""
-    query {{
-      deployment: eulerSwapFactoryPoolDeployed(chainId: {chain}, pool: "{pool_addr.lower()}") {{
-        createdAt
-        createdAtBlock
-      }}
-    }}
-    """
-    
+    """Fetch NAV at pool creation using cached pool data"""
     try:
-        r = requests.post(GRAPHQL_API, json={"query": query}, timeout=30)
-        data = r.json()
-        deployment = data.get("data", {}).get("deployment", {})
-        
-        if not deployment:
-            return 0.0, 0, datetime.now()
-            
-        created_at = deployment.get("createdAt", 0)
-        block = deployment.get("createdAtBlock", 0)
+        # Use cached pool creation block
+        from pool_cache import get_pool_creation_block
+        created_at, creation_block = get_pool_creation_block(pool_addr, chain)
         
         # Fetch historical NAV at creation block
-        hist_data = cached_fetch(V2_API, {"chainId": chain, "blockNumber": block})
+        hist_data = cached_fetch(V2_API, {"chainId": chain, "blockNumber": creation_block})
         
         for p in hist_data:
             if p['pool'].lower() == pool_addr.lower():
                 nav = format_nav(p.get('accountNav', {}))
-                return nav, block, datetime.fromtimestamp(created_at)
+                return nav, creation_block, datetime.fromtimestamp(created_at)
                 
     except Exception as e:
         print(f"Error fetching creation NAV for {pool_addr}: {e}")
@@ -125,6 +110,7 @@ def calculate_pool_metrics(pool: dict, fetch_historical: bool = False) -> dict:
         'active': pool.get('active', False),
         'volume_30d': format_nav(pool.get('volume', {}).get('total30d', 0)),
         'fees_30d': format_nav(pool.get('fees', {}).get('total30d', 0)),
+        'apr_30d': convert_apr_to_percentage(pool.get('apr', {}).get('total30d', '0')),
     }
 
 # FastHTML App
@@ -192,12 +178,16 @@ def stats():
                 nav = format_nav(pool.get('accountNav', {}))
                 total_nav += nav
                 
-                # Use 30d APR as proxy for profitability (faster)
-                apr_30d = pool.get('apr', {}).get('total30d', '0')
-                apr_pct = convert_apr_to_percentage(apr_30d)
-                if apr_pct > 0:
+                # Use calculated lifetime return if available, else 30d APR
+                if 'lifetime_return_pct' in pool:
+                    return_pct = pool.get('lifetime_return_pct', 0)
+                else:
+                    apr_30d = pool.get('apr', {}).get('total30d', '0')
+                    return_pct = convert_apr_to_percentage(apr_30d)
+                
+                if return_pct > 0:
                     total_profit_pools += 1
-                elif apr_pct < 0:
+                elif return_pct < 0:
                     total_loss_pools += 1
         
         return Grid(
@@ -246,8 +236,14 @@ def table(sort: str = "nav", order: str = "desc", show_inactive: bool = False):
             pools.sort(key=lambda x: x['lifetime_pnl'], reverse=reverse)
         elif sort == "return":
             pools.sort(key=lambda x: x['lifetime_return_pct'], reverse=reverse)
+        elif sort == "apy":
+            pools.sort(key=lambda x: x['annualized'], reverse=reverse)
+        elif sort == "apr30d":
+            pools.sort(key=lambda x: x.get('apr_30d', 0), reverse=reverse)
         elif sort == "age":
             pools.sort(key=lambda x: x['age_days'], reverse=reverse)
+        elif sort == "volume":
+            pools.sort(key=lambda x: x['volume_30d'], reverse=reverse)
         
         # Create table rows
         rows = []
@@ -264,6 +260,7 @@ def table(sort: str = "nav", order: str = "desc", show_inactive: bool = False):
                     Td(f"${p['lifetime_pnl']:,.2f}", cls=pnl_class),
                     Td(f"{p['lifetime_return_pct']:.2f}%", cls=pnl_class),
                     Td(f"{p['annualized']:.2f}%"),
+                    Td(f"{p.get('apr_30d', 0):.2f}%", cls="neutral" if p.get('apr_30d', 0) == 0 else "profit" if p.get('apr_30d', 0) > 0 else "loss"),
                     Td(f"{p['age_days']}d"),
                     Td(f"${p['volume_30d']:,.0f}"),
                     cls=row_class
@@ -294,7 +291,8 @@ def table(sort: str = "nav", order: str = "desc", show_inactive: bool = False):
                         Th("Initial NAV", hx_get="/table?sort=creation", hx_target="#pools-table"),
                         Th("Lifetime PNL", hx_get="/table?sort=pnl", hx_target="#pools-table"),
                         Th("Return %", hx_get="/table?sort=return", hx_target="#pools-table"),
-                        Th("APY", hx_get="/table?sort=apy", hx_target="#pools-table"),
+                        Th("Calc APY", hx_get="/table?sort=apy", hx_target="#pools-table"),
+                        Th("V2 30d APR", hx_get="/table?sort=apr30d", hx_target="#pools-table"),
                         Th("Age", hx_get="/table?sort=age", hx_target="#pools-table"),
                         Th("Volume 30d", hx_get="/table?sort=volume", hx_target="#pools-table"),
                     )
