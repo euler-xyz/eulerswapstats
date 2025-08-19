@@ -1,39 +1,73 @@
 # EulerSwap Pool Analysis Tools
 
-This repository contains tools for analyzing EulerSwap liquidity pools, with a focus on wstETH/WETH pools and comprehensive performance visualization.
+This repository contains tools for analyzing EulerSwap liquidity pools with automatic pool type detection and optimized visualizations for any token pair.
 
 ## Overview
 
-The analysis generates a comprehensive chart showing:
-- Net NAV in USD and WETH terms
-- Token price ratios (wstETH/ETH, stETH/WETH)
-- Net token positions (borrowed vs assets)
-- Performance comparison vs benchmarks
-- Daily trading volume and swap counts
+The analysis generates comprehensive charts tailored to your pool type:
+- **Stablecoin pools**: Peg deviation analysis, spread metrics
+- **LST pools**: Staking premium analysis, ETH-denominated returns  
+- **Volatile pools**: Price trends, volatility bands
+- **All pools**: NAV evolution, positions, volumes, fees, returns
 
 ## Prerequisites
 
 ```bash
-pip install pandas matplotlib requests
+pip install pandas matplotlib requests tabulate
 ```
 
-## Workflow Steps
+## Quick Start - Universal Workflow
 
-### Step 1: Fetch Daily NAV History with Volumes
+### For ANY Pool (Recommended)
 
 ```bash
-# Save directly to JSON (recommended)
-python daily_nav_history.py --pool 0x55dcf9455EEe8Fd3f5EEd17606291272cDe428a8 --days 31 --output pool_daily_data.json
+# Step 1: Fetch daily NAV history for any pool
+python daily_nav_history.py --pool <POOL_ADDRESS> --days 30 --output data.json
 
-# Or display table only (old method - requires manual copy to tabledata.txt)
-python daily_nav_history.py --pool 0x55dcf9455EEe8Fd3f5EEd17606291272cDe428a8 --days 31
+# Step 2: Generate type-specific visualization (auto-detects pool type)
+python parse_and_graph_generic.py --input data.json
 ```
 
-The `--output` option automatically saves the data in JSON format, which is easier to parse and doesn't require manual copying.
+The generic analyzer automatically:
+- Detects pool type (stable/stable, LST/base, volatile/stable, etc.)
+- Scales charts appropriately for token magnitudes
+- Generates relevant metrics for each pool type
+- Creates an 8-panel visualization optimized for the specific pair
+
+### Examples
+
+**Stablecoin Pool (USDe/USDT):**
+```bash
+python daily_nav_history.py --pool 0x794138c7067d38a46CE29fc84bA661678fAAe8a8 --days 30 --output usde_usdt.json
+python parse_and_graph_generic.py --input usde_usdt.json
+# Output: USDE_USDT_analysis.png with peg deviation focus
+```
+
+**LST Pool (wstETH/WETH):**
+```bash
+python daily_nav_history.py --pool 0x55dcf9d48c666bb96e90acb17e93196a35bbcc58 --days 30 --output wsteth_weth.json
+python parse_and_graph_generic.py --input wsteth_weth.json
+# Output: WSTETH_WETH_analysis.png with staking premium analysis
+```
+
+**Volatile/Stable Pool (ETH/USDC):**
+```bash
+python daily_nav_history.py --pool <ETH_USDC_POOL> --days 30 --output eth_usdc.json
+python parse_and_graph_generic.py --input eth_usdc.json
+# Output: ETH_USDC_analysis.png with price trend analysis
+```
+
+## Legacy Workflow (wstETH/WETH Specific)
+
+For wstETH/WETH pools with external stETH price integration:
+
+### Step 1: Fetch Daily NAV History
+
+```bash
+python daily_nav_history.py --pool 0x55dcf9455EEe8Fd3f5EEd17606291272cDe428a8 --days 31 --output pool_daily_data.json
+```
 
 ### Step 2: Fetch External Price Data (Optional)
-
-If you want to add stETH prices or clean ratio comparisons:
 
 ```bash
 # Fetch stETH prices from DeFiLlama
@@ -48,42 +82,23 @@ python fetch_steth_weth_ratio.py
 
 ### Step 3: Merge stETH Prices (Optional)
 
-If you fetched stETH prices and want to include them:
-
 ```bash
 python merge_steth_prices.py
 ```
 
 This creates `pool_data_with_steth.json` with integrated stETH prices.
 
-### Step 4: Generate Analysis Charts
+### Step 4: Generate wstETH-Specific Charts
 
 ```bash
-# Using JSON input (recommended)
-python parse_and_graph_wsteth_weth.py --input pool_daily_data.json
+# If you merged stETH prices (Step 3):
+python parse_and_graph.py --input pool_data_with_steth.json
 
-# Or using text table (default)
-python parse_and_graph_wsteth_weth.py --input tabledata.txt
+# If using original data without stETH prices:
+python parse_and_graph.py --input pool_daily_data.json
 ```
 
-This generates:
-- `pool_performance_analysis.png` - 8-panel visualization
-- `pool_data.json` - Structured data for further analysis
-- Summary statistics printed to console
-
-## Quick Start - Simplified Workflow
-
-For the fastest analysis, use JSON throughout:
-
-```bash
-# Step 1: Fetch data and save to JSON
-python daily_nav_history.py --pool 0x55dcf9455EEe8Fd3f5EEd17606291272cDe428a8 --days 31 --output pool_daily_data.json
-
-# Step 2: Generate charts from JSON
-python parse_and_graph_wsteth_weth.py --input pool_daily_data.json
-```
-
-That's it! The charts and analysis will be generated automatically.
+**Note:** Use `parse_and_graph_generic.py` for all new analyses as it handles any token pair automatically and provides better scaling.
 
 ## Output Files
 

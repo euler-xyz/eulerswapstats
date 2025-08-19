@@ -249,6 +249,12 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
         try:
             block = get_block_by_timestamp(timestamp)
             
+            # Skip if block is before pool creation
+            if block < creation_block:
+                print(f"  {current_date.strftime('%Y-%m-%d')}: Skipped (before pool creation at block {creation_block})")
+                current_date += timedelta(days=1)
+                continue
+            
             # Fetch pool data at this block
             pool_data = fetch_pool_data(V1_API, chain_id, pool_address, block)
             
@@ -274,20 +280,27 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
                 volume_usd = (vol_data.get('volume_token0', 0) * (price0 / 1e8) + 
                              vol_data.get('volume_token1', 0) * (price1 / 1e8)) / 2
             
+            # Calculate NAV in quote token (token1)
+            nav_in_quote = nav_result['nav'] / (price1 / 1e8) if price1 > 0 else 0
+            
             daily_data.append({
                 'date': date_str,
                 'block': block,
                 'nav': nav_result['nav'],
+                'nav_usd': nav_result['nav'],  # Add explicit nav_usd field
                 'net0': net0,
                 'net1': net1,
                 'price0': price0 / 1e8,  # Convert to USD
                 'price1': price1 / 1e8,  # Convert to USD
                 'value0': net0 * (price0 / 1e8),
                 'value1': net1 * (price1 / 1e8),
+                'nav_in_quote': nav_in_quote,
+                'nav_quote': nav_in_quote,  # Add nav_quote alias for compatibility
                 'swap_count': vol_data.get('swap_count', 0),
                 'volume_token0': vol_data.get('volume_token0', 0),
                 'volume_token1': vol_data.get('volume_token1', 0),
-                'volume_usd': volume_usd
+                'volume_usd': volume_usd,
+                'daily_volume': volume_usd  # Add daily_volume alias for compatibility
             })
             
             print(f"  {current_date.strftime('%Y-%m-%d')}: Block {block} - NAV ${nav_result['nav']:,.2f}")
@@ -446,7 +459,11 @@ def main():
             json_data = []
             for entry in daily_data:
                 json_entry = entry.copy()
-                json_entry['date'] = entry['date'].strftime('%Y-%m-%d')
+                # Date might already be a string
+                if hasattr(entry['date'], 'strftime'):
+                    json_entry['date'] = entry['date'].strftime('%Y-%m-%d')
+                else:
+                    json_entry['date'] = entry['date']  # Already a string
                 json_entry['token0_symbol'] = token0_symbol
                 json_entry['token1_symbol'] = token1_symbol
                 json_data.append(json_entry)
