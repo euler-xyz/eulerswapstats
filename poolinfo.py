@@ -167,10 +167,13 @@ def format_fee(fee) -> str:
     try:
         # Convert to int if it's a string
         fee_int = int(fee) if isinstance(fee, str) else fee
-        # Fee is typically stored as parts per 1e15
-        # 5000000000000 = 0.05% = 5 bps
-        bps = fee_int / 1e11  # Convert to basis points
-        pct = fee_int / 1e13  # Convert to percentage
+        # Fee is stored as parts per 1e18
+        # 50000000000000 = 0.005% = 0.5 bps
+        # 100000000000000 = 0.01% = 1 bp
+        # 1000000000000000 = 0.1% = 10 bps
+        decimal = fee_int / 1e18  # Convert to decimal fraction
+        bps = decimal * 10000  # Convert to basis points
+        pct = decimal * 100  # Convert to percentage
         return f"{bps:.2f} bps ({pct:.3f}%)"
     except (ValueError, TypeError):
         return "Unknown"

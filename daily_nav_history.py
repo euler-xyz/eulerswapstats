@@ -200,8 +200,40 @@ def fetch_swap_volumes(pool_address: str, start_date: datetime, end_date: dateti
         return {}
 
 
+def get_pool_fee_rate(pool_address: str, chain_id: int = 1) -> float:
+    """Get pool fee rate as a decimal (e.g., 0.0005 for 5 bps)."""
+    try:
+        query = f"""
+        query {{
+          config: eulerSwapFactoryPoolConfig(chainId: {chain_id}, pool: "{pool_address.lower()}") {{
+            fee
+          }}
+        }}
+        """
+        
+        r = requests.post(DEFAULT_GRAPHQL, json={"query": query}, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        
+        fee = data.get("data", {}).get("config", {}).get("fee")
+        if fee:
+            # Fee is stored as parts per 1e18
+            # 50000000000000 = 0.005% = 0.00005
+            return int(fee) / 1e18
+    except Exception as e:
+        print(f"Warning: Could not fetch pool fee rate: {e}")
+    
+    # Default to 1 bp (0.01%) if fetch fails
+    return 0.0001
+
+
 def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) -> List[Dict]:
     """Get daily NAV history for a pool."""
+    
+    # Get pool fee rate
+    fee_rate = get_pool_fee_rate(pool_address, chain_id)
+    fee_bps = fee_rate * 10000  # Convert to basis points for display
+    print(f"Pool fee rate: {fee_bps:.2f} bps ({fee_rate*100:.3f}%)")
     
     # Get pool creation info
     created_at, creation_block = get_pool_creation_block(pool_address, chain_id)
@@ -321,10 +353,10 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
         
         current_date += timedelta(days=1)
     
-    return daily_data, token0_symbol, token1_symbol
+    return daily_data, token0_symbol, token1_symbol, fee_rate
 
 
-def display_nav_table(daily_data: List[Dict], token0_symbol: str, token1_symbol: str):
+def display_nav_table(daily_data: List[Dict], token0_symbol: str, token1_symbol: str, fee_rate: float = 0.0001):
     """Display NAV history as a formatted table."""
     
     # Prepare table data
@@ -411,10 +443,13 @@ def display_nav_table(daily_data: List[Dict], token0_symbol: str, token1_symbol:
         total_change = last_nav - first_nav
         total_change_pct = (total_change / first_nav * 100) if first_nav > 0 else 0
         
-        # Calculate volume totals
+        # Calculate volume totals and fees with actual rate
         total_volume = sum(d.get('volume_usd', 0) for d in daily_data)
         total_swaps = sum(d.get('swap_count', 0) for d in daily_data)
         avg_daily_volume = total_volume / len(daily_data) if len(daily_data) > 0 else 0
+        total_fees = total_volume * fee_rate
+        fee_return = (total_fees / first_nav * 100) if first_nav > 0 else 0
+        fee_apr = (fee_return / len(valid_navs) * 365) if len(valid_navs) > 0 else 0
         
         print("\n" + "=" * 120)
         print("SUMMARY")
@@ -431,10 +466,14 @@ def display_nav_table(daily_data: List[Dict], token0_symbol: str, token1_symbol:
             print(f"Average Daily Change: {daily_avg_change:+.2f}%")
             print(f"Annualized Return: {annualized:+.2f}%")
         
-        print(f"\nVolume Statistics:")
+        print(f"\nVolume & Fee Statistics:")
         print(f"Total Volume: ${total_volume:,.0f}")
         print(f"Total Swaps: {total_swaps:,}")
         print(f"Average Daily Volume: ${avg_daily_volume:,.0f}")
+        print(f"Pool Fee Rate: {fee_rate*10000:.2f} bps ({fee_rate*100:.3f}%)")
+        print(f"Fees Earned: ${total_fees:,.0f}")
+        print(f"Fee Return: {fee_return:.2f}%")
+        print(f"Fee APR: {fee_apr:.2f}%")
 
 
 def main():
@@ -447,7 +486,7 @@ def main():
     args = parser.parse_args()
     
     try:
-        daily_data, token0_symbol, token1_symbol = get_daily_nav_history(
+        daily_data, token0_symbol, token1_symbol, fee_rate = get_daily_nav_history(
             args.pool, 
             args.chain,
             args.days
@@ -468,12 +507,28 @@ def main():
                 json_entry['token1_symbol'] = token1_symbol
                 json_data.append(json_entry)
             
+            # Save metadata at the end
+            metadata = {
+                'pool_address': args.pool,
+                'chain_id': args.chain,
+                'fee_rate': fee_rate,
+                'fee_bps': fee_rate * 10000,
+                'token0_symbol': token0_symbol,
+                'token1_symbol': token1_symbol
+            }
+            
+            # Save both data and metadata
+            output_data = {
+                'metadata': metadata,
+                'daily_data': json_data
+            }
+            
             with open(args.output, 'w') as f:
-                json.dump(json_data, f, indent=2)
+                json.dump(output_data, f, indent=2)
             print(f"\nData saved to {args.output}")
         
         # Always display the table
-        display_nav_table(daily_data, token0_symbol, token1_symbol)
+        display_nav_table(daily_data, token0_symbol, token1_symbol, fee_rate)
         
     except Exception as e:
         print(f"Error: {e}")

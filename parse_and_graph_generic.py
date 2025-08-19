@@ -136,13 +136,21 @@ class PairAnalyzer:
         
         return base_config
 
-def parse_json_data(filename: str) -> pd.DataFrame:
-    """Parse data from JSON file, auto-detecting field format."""
+def parse_json_data(filename: str) -> Tuple[pd.DataFrame, float]:
+    """Parse data from JSON file, auto-detecting field format.
+    Returns: (DataFrame, fee_rate)
+    """
     with open(filename, 'r') as f:
         json_data = json.load(f)
     
+    # Check if it's the new format with metadata
+    fee_rate = 0.0001  # Default 1bp
+    if isinstance(json_data, dict) and 'metadata' in json_data:
+        fee_rate = json_data['metadata'].get('fee_rate', 0.0001)
+        json_data = json_data['daily_data']
+    
     if not json_data:
-        return pd.DataFrame()
+        return pd.DataFrame(), fee_rate
     
     first_entry = json_data[0]
     
@@ -211,9 +219,9 @@ def parse_json_data(filename: str) -> pd.DataFrame:
             'token1_symbol': token1_symbol
         })
     
-    return pd.DataFrame(data)
+    return pd.DataFrame(data), fee_rate
 
-def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer) -> plt.Figure:
+def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate: float = 0.0001) -> plt.Figure:
     """Create charts appropriate for the token pair type."""
     
     config = analyzer.get_chart_config()
@@ -379,8 +387,7 @@ def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer) -> plt.Figur
     if config.get('fee_analysis') and chart_idx < len(axes):
         ax = axes[chart_idx]
         
-        # Calculate cumulative fees (assuming 1bp fee rate)
-        fee_rate = 0.0001  # 1 basis point
+        # Calculate cumulative fees using actual fee rate
         df['daily_fees'] = df['daily_volume'] * fee_rate
         df['cumulative_fees'] = df['daily_fees'].cumsum()
         
@@ -396,7 +403,9 @@ def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer) -> plt.Figur
         days = len(df)
         fee_apr = (total_fees / avg_nav) * (365 / days) * 100
         
-        ax.text(0.02, 0.98, f'Fee APR: {fee_apr:.2f}%', 
+        # Show fee rate and APR
+        fee_bps = fee_rate * 10000
+        ax.text(0.02, 0.98, f'Fee Rate: {fee_bps:.2f}bps\nFee APR: {fee_apr:.2f}%', 
                 transform=ax.transAxes, verticalalignment='top',
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
         chart_idx += 1
@@ -414,7 +423,7 @@ def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer) -> plt.Figur
     
     return fig
 
-def print_summary_statistics(df: pd.DataFrame, analyzer: PairAnalyzer):
+def print_summary_statistics(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate: float = 0.0001):
     """Print summary statistics appropriate for the pair type."""
     
     token0 = analyzer.token0
@@ -453,15 +462,16 @@ def print_summary_statistics(df: pd.DataFrame, analyzer: PairAnalyzer):
     # Volume and fees
     total_volume = df['daily_volume'].sum()
     total_swaps = df['swaps'].sum()
-    fee_rate = 0.0001  # 1bp assumed
     total_fees = total_volume * fee_rate
     fee_return = (total_fees / initial_nav_usd) * 100
     days = len(df)
     fee_apr = fee_return * (365 / days)
+    fee_bps = fee_rate * 10000
     
     print(f"\nVolume & Fees:")
     print(f"  Total Volume: ${total_volume:,.0f}")
     print(f"  Total Swaps: {total_swaps:,}")
+    print(f"  Pool Fee Rate: {fee_bps:.2f} bps ({fee_rate*100:.3f}%)")
     print(f"  Fees Earned: ${total_fees:,.0f}")
     print(f"  Fee Return: {fee_return:.2f}%")
     print(f"  Fee APR: {fee_apr:.2f}%")
@@ -499,7 +509,7 @@ def main():
     args = parser.parse_args()
     
     # Load data
-    df = parse_json_data(args.input)
+    df, fee_rate = parse_json_data(args.input)
     
     if df.empty:
         print(f"No data parsed from {args.input}")
@@ -523,10 +533,10 @@ def main():
         print(f"Detected pair type: {analyzer.pair_type.value}")
     
     # Create appropriate charts
-    fig = create_generic_charts(df, analyzer)
+    fig = create_generic_charts(df, analyzer, fee_rate)
     
     # Print summary
-    print_summary_statistics(df, analyzer)
+    print_summary_statistics(df, analyzer, fee_rate)
     
     # Show plot
     plt.show()

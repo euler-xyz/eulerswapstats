@@ -100,56 +100,6 @@ python parse_and_graph.py --input pool_daily_data.json
 
 **Note:** Use `parse_and_graph_generic.py` for all new analyses as it handles any token pair automatically and provides better scaling.
 
-## Output Files
-
-- **pool_performance_analysis.png**: Main visualization with 8 charts
-- **pool_data.json**: Parsed pool data in JSON format
-- **pool_data_with_steth.json**: Pool data with stETH prices (if Step 3 was run)
-- **pool_data_clean_ratios.json**: Pool data with clean DeFiLlama ratios (if Step 2 was run)
-
-## Understanding the Results
-
-### Key Metrics
-
-1. **Fee Return**: Calculated as `(Total Volume × Fee Rate) / Starting NAV`
-   - Example: $139M volume × 0.01% fee / $2.1M NAV = 0.66% return
-
-2. **WETH Return**: Change in NAV when measured in WETH terms
-   - Negative values indicate underperformance vs holding WETH
-
-3. **Leverage Evolution**: Change in borrowed position over time
-   - Higher leverage amplifies both gains and losses
-
-### Chart Panels
-
-1. **Net NAV in USD**: Total value of pool in USD terms
-2. **Net NAV in WETH**: Total value measured in WETH (shows real performance)
-3. **wstETH/ETH Ratio**: Premium of wrapped staked ETH over regular ETH
-4. **stETH/WETH Ratio**: Shows liquid staking token parity with ETH
-5. **Net Positions**: Borrowed (negative) vs asset (positive) amounts
-6. **Performance Comparison**: Returns vs benchmarks
-7. **Daily Volume**: Trading activity in USD
-8. **Daily Swaps**: Number of transactions
-
-## Example Analysis
-
-For pool 0x55dcf9455EEe8Fd3f5EEd17606291272cDe428a8 over 31 days:
-
-```
-Period: 2025-07-20 to 2025-08-19
-NAV Performance:
-  USD Return: 14.80%
-  WETH Return: -2.31%
-  
-Fee Metrics:
-  Total Volume: $139M
-  Fee Return: 0.66% (7.77% APR)
-  
-Leverage:
-  Initial: -1,374 wstETH borrowed
-  Final: -4,255 wstETH borrowed (3.1x increase)
-```
-
 ## Troubleshooting
 
 ### Common Issues
@@ -163,14 +113,6 @@ Leverage:
 4. **Price scale issues**: The scripts assume 1e8 scale for USD prices from GraphQL
 
 ## Advanced Usage
-
-### Analyzing Different Pools
-
-Replace the pool address in Step 1 with any wstETH/WETH pool:
-
-```bash
-python daily_nav_history.py YOUR_POOL_ADDRESS --days 30
-```
 
 ### Customizing Date Range
 
