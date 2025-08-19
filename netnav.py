@@ -98,8 +98,8 @@ def fetch_price(graphql: str, chain: int, asset: str, source: str = "oracle", bl
     
     price = int(items[0]["price"])
     
-    # Auto-detect scale based on price magnitude (8 digits = 1e8 scale)
-    scale = 10**8 if len(str(price)) <= 9 else 10**18
+    # The GraphQL prices are always in 1e8 scale for USD prices
+    scale = 10**8
     
     return price, scale
 

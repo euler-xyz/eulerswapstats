@@ -3,6 +3,7 @@
 Show daily NAV history for a pool along with token prices.
 """
 import argparse
+import json
 import requests
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
@@ -63,6 +64,142 @@ def get_block_by_timestamp(timestamp: int) -> int:
     return result
 
 
+def fetch_swap_volumes(pool_address: str, start_date: datetime, end_date: datetime) -> Dict[str, Dict]:
+    """Fetch daily swap volumes from GraphQL with cursor-based pagination."""
+    
+    daily_volumes = {}
+    all_swaps = []
+    cursor = None
+    limit = 1000
+    page_num = 0
+    
+    try:
+        while True:
+            page_num += 1
+            
+            # Build query with optional cursor
+            if cursor:
+                query = '''
+                query {
+                  eulerSwapSwaps(
+                    where: {pool: "%s"}
+                    orderBy: "blockNumber"
+                    orderDirection: "desc"
+                    limit: %d
+                    after: "%s"
+                  ) {
+                    items {
+                      blockNumber
+                      timestamp
+                      amount0In
+                      amount1In
+                      amount0Out
+                      amount1Out
+                    }
+                    pageInfo {
+                      hasNextPage
+                      endCursor
+                    }
+                  }
+                }
+                ''' % (pool_address.lower(), limit, cursor)
+            else:
+                query = '''
+                query {
+                  eulerSwapSwaps(
+                    where: {pool: "%s"}
+                    orderBy: "blockNumber"
+                    orderDirection: "desc"
+                    limit: %d
+                  ) {
+                    items {
+                      blockNumber
+                      timestamp
+                      amount0In
+                      amount1In
+                      amount0Out
+                      amount1Out
+                    }
+                    pageInfo {
+                      hasNextPage
+                      endCursor
+                    }
+                  }
+                }
+                ''' % (pool_address.lower(), limit)
+            
+            print(f"  Fetching page {page_num} of swaps...")
+            r = requests.post(DEFAULT_GRAPHQL, json={'query': query}, timeout=60)
+            data = r.json()
+            
+            if 'errors' in data:
+                print(f"  GraphQL errors: {data['errors']}")
+                break
+            
+            if 'data' in data and data['data'] and 'eulerSwapSwaps' in data['data']:
+                result = data['data']['eulerSwapSwaps']
+                swaps = result.get('items', [])
+                page_info = result.get('pageInfo', {})
+                
+                if not swaps:
+                    break
+                    
+                all_swaps.extend(swaps)
+                
+                # Check if oldest swap is before our start date
+                if swaps:
+                    oldest_timestamp = int(swaps[-1]['timestamp'])
+                    oldest_date = datetime.fromtimestamp(oldest_timestamp)
+                    if oldest_date < start_date:
+                        print(f"  Reached swaps before start date, stopping pagination")
+                        break
+                
+                # Check if there are more pages
+                if page_info.get('hasNextPage'):
+                    cursor = page_info.get('endCursor')
+                else:
+                    break
+            else:
+                break
+        
+        print(f"  Total swaps fetched: {len(all_swaps)}")
+        
+        # Process all swaps
+        for swap in all_swaps:
+            timestamp = int(swap['timestamp'])
+            swap_date = datetime.fromtimestamp(timestamp)
+            
+            # Skip if outside our date range
+            if swap_date < start_date or swap_date > end_date:
+                continue
+                
+            date_str = swap_date.strftime('%Y-%m-%d')
+            
+            # Parse amounts (in wei)
+            amt0_in = int(swap['amount0In']) / 1e18 if swap['amount0In'] else 0
+            amt1_in = int(swap['amount1In']) / 1e18 if swap['amount1In'] else 0
+            amt0_out = int(swap['amount0Out']) / 1e18 if swap['amount0Out'] else 0
+            amt1_out = int(swap['amount1Out']) / 1e18 if swap['amount1Out'] else 0
+            
+            if date_str not in daily_volumes:
+                daily_volumes[date_str] = {
+                    'swap_count': 0,
+                    'volume_token0': 0,
+                    'volume_token1': 0
+                }
+            
+            daily_volumes[date_str]['swap_count'] += 1
+            daily_volumes[date_str]['volume_token0'] += max(amt0_in, amt0_out)
+            daily_volumes[date_str]['volume_token1'] += max(amt1_in, amt1_out)
+        
+        print(f"  Swaps grouped into {len(daily_volumes)} days")
+        return daily_volumes
+        
+    except Exception as e:
+        print(f"Error fetching swap volumes: {e}")
+        return {}
+
+
 def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) -> List[Dict]:
     """Get daily NAV history for a pool."""
     
@@ -75,6 +212,10 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
     
     # Determine start date (either creation or N days ago)
     start_date = max(creation_date, now - timedelta(days=days))
+    
+    # Fetch daily swap volumes
+    print("Fetching swap volumes...")
+    daily_volumes = fetch_swap_volumes(pool_address, start_date, now)
     
     # Generate daily timestamps from start to now
     daily_data = []
@@ -123,8 +264,18 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
             net0 = positions.get('asset0', {}).get('net', 0) if positions else 0
             net1 = positions.get('asset1', {}).get('net', 0) if positions else 0
             
+            # Get volume data for this date
+            date_str = current_date.strftime('%Y-%m-%d')
+            vol_data = daily_volumes.get(date_str, {})
+            
+            # Calculate USD volume
+            volume_usd = 0
+            if vol_data:
+                volume_usd = (vol_data.get('volume_token0', 0) * (price0 / 1e8) + 
+                             vol_data.get('volume_token1', 0) * (price1 / 1e8)) / 2
+            
             daily_data.append({
-                'date': current_date.strftime('%Y-%m-%d'),
+                'date': date_str,
                 'block': block,
                 'nav': nav_result['nav'],
                 'net0': net0,
@@ -132,7 +283,11 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
                 'price0': price0 / 1e8,  # Convert to USD
                 'price1': price1 / 1e8,  # Convert to USD
                 'value0': net0 * (price0 / 1e8),
-                'value1': net1 * (price1 / 1e8)
+                'value1': net1 * (price1 / 1e8),
+                'swap_count': vol_data.get('swap_count', 0),
+                'volume_token0': vol_data.get('volume_token0', 0),
+                'volume_token1': vol_data.get('volume_token1', 0),
+                'volume_usd': volume_usd
             })
             
             print(f"  {current_date.strftime('%Y-%m-%d')}: Block {block} - NAV ${nav_result['nav']:,.2f}")
@@ -177,6 +332,10 @@ def display_nav_table(daily_data: List[Dict], token0_symbol: str, token1_symbol:
             # Calculate NAV in WETH terms
             nav_in_weth = day['nav'] / day['price1'] if day['price1'] and day['price1'] > 0 else 0
             
+            # Get volume data
+            volume_usd = day.get('volume_usd', 0)
+            swap_count = day.get('swap_count', 0)
+            
             table_data.append([
                 day['date'],
                 day['block'] if day['block'] else 'N/A',
@@ -187,7 +346,9 @@ def display_nav_table(daily_data: List[Dict], token0_symbol: str, token1_symbol:
                 f"{day['net1']:,.2f}" if day['net1'] is not None else 'N/A',
                 f"${day['price0']:,.2f}" if day['price0'] else 'N/A',
                 f"${day['price1']:,.2f}" if day['price1'] else 'N/A',
-                f"{nav_in_weth:,.2f}" if nav_in_weth > 0 else 'N/A'
+                f"{nav_in_weth:,.2f}" if nav_in_weth > 0 else 'N/A',
+                f"${volume_usd:,.0f}" if volume_usd > 0 else '-',
+                f"{swap_count}" if swap_count > 0 else '-'
             ])
             
             if day['nav'] is not None:
@@ -203,7 +364,9 @@ def display_nav_table(daily_data: List[Dict], token0_symbol: str, token1_symbol:
                 'N/A',
                 'N/A',
                 'N/A',
-                'N/A'
+                'N/A',
+                '-',
+                '-'
             ])
     
     # Display table
@@ -217,7 +380,9 @@ def display_nav_table(daily_data: List[Dict], token0_symbol: str, token1_symbol:
         f'{token1_symbol} Net',
         f'{token0_symbol} Price',
         f'{token1_symbol} Price',
-        'NAV in WETH'
+        'NAV in WETH',
+        'Daily Volume',
+        'Swaps'
     ]
     
     print("\n" + "=" * 120)
@@ -233,6 +398,11 @@ def display_nav_table(daily_data: List[Dict], token0_symbol: str, token1_symbol:
         total_change = last_nav - first_nav
         total_change_pct = (total_change / first_nav * 100) if first_nav > 0 else 0
         
+        # Calculate volume totals
+        total_volume = sum(d.get('volume_usd', 0) for d in daily_data)
+        total_swaps = sum(d.get('swap_count', 0) for d in daily_data)
+        avg_daily_volume = total_volume / len(daily_data) if len(daily_data) > 0 else 0
+        
         print("\n" + "=" * 120)
         print("SUMMARY")
         print("=" * 120)
@@ -247,6 +417,11 @@ def display_nav_table(daily_data: List[Dict], token0_symbol: str, token1_symbol:
             annualized = ((last_nav / first_nav) ** (365 / len(valid_navs)) - 1) * 100 if first_nav > 0 else 0
             print(f"Average Daily Change: {daily_avg_change:+.2f}%")
             print(f"Annualized Return: {annualized:+.2f}%")
+        
+        print(f"\nVolume Statistics:")
+        print(f"Total Volume: ${total_volume:,.0f}")
+        print(f"Total Swaps: {total_swaps:,}")
+        print(f"Average Daily Volume: ${avg_daily_volume:,.0f}")
 
 
 def main():
@@ -254,6 +429,7 @@ def main():
     parser.add_argument("--pool", required=True, help="Pool address")
     parser.add_argument("--days", type=int, default=30, help="Number of days to show (default: 30)")
     parser.add_argument("--chain", type=int, default=1, help="Chain ID (default: 1)")
+    parser.add_argument("--output", help="Output file (JSON format)")
     
     args = parser.parse_args()
     
@@ -264,6 +440,22 @@ def main():
             args.days
         )
         
+        # Save to JSON if output file specified
+        if args.output:
+            # Convert datetime to string for JSON serialization
+            json_data = []
+            for entry in daily_data:
+                json_entry = entry.copy()
+                json_entry['date'] = entry['date'].strftime('%Y-%m-%d')
+                json_entry['token0_symbol'] = token0_symbol
+                json_entry['token1_symbol'] = token1_symbol
+                json_data.append(json_entry)
+            
+            with open(args.output, 'w') as f:
+                json.dump(json_data, f, indent=2)
+            print(f"\nData saved to {args.output}")
+        
+        # Always display the table
         display_nav_table(daily_data, token0_symbol, token1_symbol)
         
     except Exception as e:
