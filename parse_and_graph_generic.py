@@ -136,21 +136,23 @@ class PairAnalyzer:
         
         return base_config
 
-def parse_json_data(filename: str) -> Tuple[pd.DataFrame, float]:
+def parse_json_data(filename: str) -> Tuple[pd.DataFrame, float, Dict]:
     """Parse data from JSON file, auto-detecting field format.
-    Returns: (DataFrame, fee_rate)
+    Returns: (DataFrame, fee_rate, metadata)
     """
     with open(filename, 'r') as f:
         json_data = json.load(f)
     
     # Check if it's the new format with metadata
     fee_rate = 0.0001  # Default 1bp
+    metadata = {}
     if isinstance(json_data, dict) and 'metadata' in json_data:
-        fee_rate = json_data['metadata'].get('fee_rate', 0.0001)
+        metadata = json_data['metadata']
+        fee_rate = metadata.get('fee_rate', 0.0001)
         json_data = json_data['daily_data']
     
     if not json_data:
-        return pd.DataFrame(), fee_rate
+        return pd.DataFrame(), fee_rate, metadata
     
     first_entry = json_data[0]
     
@@ -219,7 +221,7 @@ def parse_json_data(filename: str) -> Tuple[pd.DataFrame, float]:
             'token1_symbol': token1_symbol
         })
     
-    return pd.DataFrame(data), fee_rate
+    return pd.DataFrame(data), fee_rate, metadata
 
 def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate: float = 0.0001) -> plt.Figure:
     """Create charts appropriate for the token pair type."""
@@ -405,7 +407,10 @@ def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate: fl
         
         # Show fee rate and APR
         fee_bps = fee_rate * 10000
-        ax.text(0.02, 0.98, f'Fee Rate: {fee_bps:.2f}bps\nFee APR: {fee_apr:.2f}%', 
+        
+        text = f'Fee Rate: {fee_bps:.2f}bps\nFee APR: {fee_apr:.2f}%'
+            
+        ax.text(0.02, 0.98, text, 
                 transform=ax.transAxes, verticalalignment='top',
                 bbox=dict(boxstyle='round', facecolor='wheat', alpha=0.5))
         chart_idx += 1
@@ -452,6 +457,17 @@ def print_summary_statistics(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate:
     print(f"  Ending NAV ({token1}): {final_nav_quote:.2f}")
     print(f"  {token1} Return: {((final_nav_quote/initial_nav_quote - 1) * 100):.2f}%")
     
+    # Calculate annualized returns
+    days = len(df)
+    usd_return_pct = ((final_nav_usd/initial_nav_usd - 1) * 100)
+    quote_return_pct = ((final_nav_quote/initial_nav_quote - 1) * 100)
+    usd_apr = usd_return_pct * (365 / days)
+    quote_apr = quote_return_pct * (365 / days)
+    
+    print(f"\nAnnualized Returns:")
+    print(f"  USD APR: {usd_apr:.2f}%")
+    print(f"  {token1} APR: {quote_apr:.2f}%")
+    
     # Position changes
     print(f"\nPosition Evolution:")
     print(f"  Initial {token0}: {df['token0_net'].iloc[0]:,.2f}")
@@ -475,6 +491,7 @@ def print_summary_statistics(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate:
     print(f"  Fees Earned: ${total_fees:,.0f}")
     print(f"  Fee Return: {fee_return:.2f}%")
     print(f"  Fee APR: {fee_apr:.2f}%")
+    
     
     # Pair-specific metrics
     if analyzer.pair_type == PairType.STABLE_STABLE:
@@ -509,7 +526,7 @@ def main():
     args = parser.parse_args()
     
     # Load data
-    df, fee_rate = parse_json_data(args.input)
+    df, fee_rate, metadata = parse_json_data(args.input)
     
     if df.empty:
         print(f"No data parsed from {args.input}")

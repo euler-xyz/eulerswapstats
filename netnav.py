@@ -223,7 +223,7 @@ def fetch_token_symbol(graphql_url: str, chain: int, address: str) -> str:
         "0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48": "USDC",
         "0xdac17f958d2ee523a2206206994597c13d831ec7": "USDT",
         "0xc02aaa39b223fe8d0a0e5c4f27ead9083c756cc2": "WETH",
-        "0xc139190f447e929f090edeb554d95abb8b18ac1c": "RLUSD",
+        "0x8292bb45bf1ee4d140127049757c2e0ff06317ed": "RLUSD",
     }
     
     return fallback_tokens.get(address.lower(), address[:8] + "...")

@@ -5,6 +5,7 @@ Show daily NAV history for a pool along with token prices.
 import argparse
 import json
 import requests
+import time
 from datetime import datetime, timedelta
 from typing import Dict, List, Tuple
 from tabulate import tabulate
@@ -18,11 +19,44 @@ V2_API = "https://index-dev.eul.dev/v2/swap/pools"
 DEFAULT_GRAPHQL = "https://index-dev.euler.finance/graphql"
 DEFAULT_RPC_URL = "https://ethereum.publicnode.com"
 
+# Retry configuration
+MAX_RETRIES = 3
+INITIAL_RETRY_DELAY = 1  # seconds
+MAX_RETRY_DELAY = 16  # seconds
+
+
+def retry_with_backoff(func, *args, **kwargs):
+    """Execute a function with exponential backoff retry logic."""
+    last_exception = None
+    delay = INITIAL_RETRY_DELAY
+    
+    for attempt in range(MAX_RETRIES):
+        try:
+            return func(*args, **kwargs)
+        except Exception as e:
+            last_exception = e
+            if attempt < MAX_RETRIES - 1:
+                # Check if it's a server error worth retrying
+                error_msg = str(e).lower()
+                if any(x in error_msg for x in ['502', '503', '504', '520', 'timeout', 'connection']):
+                    print(f"    Retry {attempt + 1}/{MAX_RETRIES} after {delay}s due to: {e}")
+                    time.sleep(delay)
+                    delay = min(delay * 2, MAX_RETRY_DELAY)  # Exponential backoff with cap
+                else:
+                    # Don't retry for client errors
+                    raise
+            else:
+                raise
+    
+    # Should never reach here, but just in case
+    if last_exception:
+        raise last_exception
+
 
 def rpc_call(rpc_url: str, method: str, params: list):
     """Make RPC call to Ethereum node."""
     payload = {"jsonrpc": "2.0", "id": 1, "method": method, "params": params}
-    r = requests.post(rpc_url, json=payload, timeout=30)
+    r = retry_with_backoff(requests.post, rpc_url, json=payload, timeout=30)
     r.raise_for_status()
     js = r.json()
     if "error" in js and js["error"]:
@@ -129,7 +163,7 @@ def fetch_swap_volumes(pool_address: str, start_date: datetime, end_date: dateti
                 ''' % (pool_address.lower(), limit)
             
             print(f"  Fetching page {page_num} of swaps...")
-            r = requests.post(DEFAULT_GRAPHQL, json={'query': query}, timeout=60)
+            r = retry_with_backoff(requests.post, DEFAULT_GRAPHQL, json={'query': query}, timeout=60)
             data = r.json()
             
             if 'errors' in data:
@@ -211,7 +245,7 @@ def get_pool_fee_rate(pool_address: str, chain_id: int = 1) -> float:
         }}
         """
         
-        r = requests.post(DEFAULT_GRAPHQL, json={"query": query}, timeout=30)
+        r = retry_with_backoff(requests.post, DEFAULT_GRAPHQL, json={"query": query}, timeout=30)
         r.raise_for_status()
         data = r.json()
         
@@ -225,6 +259,7 @@ def get_pool_fee_rate(pool_address: str, chain_id: int = 1) -> float:
     
     # Default to 1 bp (0.01%) if fetch fails
     return 0.0001
+
 
 
 def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) -> List[Dict]:
@@ -254,7 +289,7 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
     current_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
     
     # Get token info from V2 API
-    r = requests.get(V2_API, params={"chainId": chain_id})
+    r = retry_with_backoff(requests.get, V2_API, params={"chainId": chain_id})
     pools_v2 = r.json()
     token0_addr = None
     token1_addr = None
@@ -276,16 +311,17 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
     
     while current_date <= now:
         timestamp = int(current_date.timestamp())
+        date_str = current_date.strftime('%Y-%m-%d')
         
-        # Get block at this timestamp
-        try:
+        # Function to fetch a single day's data
+        def fetch_day_data():
+            # Get block at this timestamp
             block = get_block_by_timestamp(timestamp)
             
             # Skip if block is before pool creation
             if block < creation_block:
-                print(f"  {current_date.strftime('%Y-%m-%d')}: Skipped (before pool creation at block {creation_block})")
-                current_date += timedelta(days=1)
-                continue
+                print(f"  {date_str}: Skipped (before pool creation at block {creation_block})")
+                return None
             
             # Fetch pool data at this block
             pool_data = fetch_pool_data(V1_API, chain_id, pool_address, block)
@@ -303,7 +339,6 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
             net1 = positions.get('asset1', {}).get('net', 0) if positions else 0
             
             # Get volume data for this date
-            date_str = current_date.strftime('%Y-%m-%d')
             vol_data = daily_volumes.get(date_str, {})
             
             # Calculate USD volume
@@ -315,7 +350,7 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
             # Calculate NAV in quote token (token1)
             nav_in_quote = nav_result['nav'] / (price1 / 1e8) if price1 > 0 else 0
             
-            daily_data.append({
+            return {
                 'date': date_str,
                 'block': block,
                 'nav': nav_result['nav'],
@@ -333,22 +368,39 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
                 'volume_token1': vol_data.get('volume_token1', 0),
                 'volume_usd': volume_usd,
                 'daily_volume': volume_usd  # Add daily_volume alias for compatibility
-            })
+            }
+        
+        # Try to fetch data with retries
+        try:
+            day_data = retry_with_backoff(fetch_day_data)
             
-            print(f"  {current_date.strftime('%Y-%m-%d')}: Block {block} - NAV ${nav_result['nav']:,.2f}")
+            if day_data:
+                daily_data.append(day_data)
+                print(f"  {date_str}: Block {day_data['block']} - NAV ${day_data['nav']:,.2f}")
             
         except Exception as e:
-            print(f"  {current_date.strftime('%Y-%m-%d')}: Error - {str(e)}")
+            print(f"  {date_str}: Failed after {MAX_RETRIES} retries - {str(e)}")
+            # Add null data for failed day
             daily_data.append({
-                'date': current_date.strftime('%Y-%m-%d'),
+                'date': date_str,
                 'block': None,
                 'nav': None,
+                'nav_usd': None,
                 'net0': None,
                 'net1': None,
                 'price0': None,
                 'price1': None,
                 'value0': None,
-                'value1': None
+                'value1': None,
+                'nav_in_quote': None,
+                'nav_quote': None,
+                'swap_count': 0,
+                'volume_token0': 0,
+                'volume_token1': 0,
+                'volume_usd': 0,
+                'daily_volume': 0,
+                'token0_symbol': token0_symbol,
+                'token1_symbol': token1_symbol
             })
         
         current_date += timedelta(days=1)
@@ -492,40 +544,42 @@ def main():
             args.days
         )
         
-        # Save to JSON if output file specified
-        if args.output:
-            # Convert datetime to string for JSON serialization
-            json_data = []
-            for entry in daily_data:
-                json_entry = entry.copy()
-                # Date might already be a string
-                if hasattr(entry['date'], 'strftime'):
-                    json_entry['date'] = entry['date'].strftime('%Y-%m-%d')
-                else:
-                    json_entry['date'] = entry['date']  # Already a string
-                json_entry['token0_symbol'] = token0_symbol
-                json_entry['token1_symbol'] = token1_symbol
-                json_data.append(json_entry)
-            
-            # Save metadata at the end
-            metadata = {
-                'pool_address': args.pool,
-                'chain_id': args.chain,
-                'fee_rate': fee_rate,
-                'fee_bps': fee_rate * 10000,
-                'token0_symbol': token0_symbol,
-                'token1_symbol': token1_symbol
-            }
-            
-            # Save both data and metadata
-            output_data = {
-                'metadata': metadata,
-                'daily_data': json_data
-            }
-            
-            with open(args.output, 'w') as f:
-                json.dump(output_data, f, indent=2)
-            print(f"\nData saved to {args.output}")
+        # Determine output filename
+        output_file = args.output if args.output else f"{args.pool}.json"
+        
+        # Always save to JSON
+        # Convert datetime to string for JSON serialization
+        json_data = []
+        for entry in daily_data:
+            json_entry = entry.copy()
+            # Date might already be a string
+            if hasattr(entry['date'], 'strftime'):
+                json_entry['date'] = entry['date'].strftime('%Y-%m-%d')
+            else:
+                json_entry['date'] = entry['date']  # Already a string
+            json_entry['token0_symbol'] = token0_symbol
+            json_entry['token1_symbol'] = token1_symbol
+            json_data.append(json_entry)
+        
+        # Save metadata at the end
+        metadata = {
+            'pool_address': args.pool,
+            'chain_id': args.chain,
+            'fee_rate': fee_rate,
+            'fee_bps': fee_rate * 10000,
+            'token0_symbol': token0_symbol,
+            'token1_symbol': token1_symbol
+        }
+        
+        # Save both data and metadata
+        output_data = {
+            'metadata': metadata,
+            'daily_data': json_data
+        }
+        
+        with open(output_file, 'w') as f:
+            json.dump(output_data, f, indent=2)
+        print(f"\nData saved to {output_file}")
         
         # Always display the table
         display_nav_table(daily_data, token0_symbol, token1_symbol, fee_rate)
