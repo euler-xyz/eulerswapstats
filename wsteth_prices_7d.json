@@ -1,0 +1,51 @@
+[
+  {
+    "date": "2025-08-13",
+    "block": 23133182,
+    "timestamp": 1755100800,
+    "price": 5668.91172087,
+    "source": "graphql"
+  },
+  {
+    "date": "2025-08-14",
+    "block": 23140332,
+    "timestamp": 1755187200,
+    "price": 5663.93958649,
+    "source": "graphql"
+  },
+  {
+    "date": "2025-08-15",
+    "block": 23147491,
+    "timestamp": 1755273600,
+    "price": 5368.2147521,
+    "source": "graphql"
+  },
+  {
+    "date": "2025-08-16",
+    "block": 23154656,
+    "timestamp": 1755360000,
+    "price": 5310.42279069,
+    "source": "graphql"
+  },
+  {
+    "date": "2025-08-17",
+    "block": 23161830,
+    "timestamp": 1755446400,
+    "price": 5494.01564396,
+    "source": "graphql"
+  },
+  {
+    "date": "2025-08-18",
+    "block": 23168996,
+    "timestamp": 1755532800,
+    "price": 5255.7320613,
+    "source": "graphql"
+  },
+  {
+    "date": "2025-08-19",
+    "block": 23176174,
+    "timestamp": 1755619200,
+    "price": 5187.87927411,
+    "source": "graphql"
+  }
+]

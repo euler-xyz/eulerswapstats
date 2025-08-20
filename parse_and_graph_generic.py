@@ -223,8 +223,11 @@ def parse_json_data(filename: str) -> Tuple[pd.DataFrame, float, Dict]:
     
     return pd.DataFrame(data), fee_rate, metadata
 
-def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate: float = 0.0001) -> plt.Figure:
+def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate: float = 0.0001, metadata: Dict = None) -> plt.Figure:
     """Create charts appropriate for the token pair type."""
+    
+    if metadata is None:
+        metadata = {}
     
     config = analyzer.get_chart_config()
     token0 = analyzer.token0
@@ -457,8 +460,18 @@ def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate: fl
     
     plt.tight_layout()
     
-    # Save the figure
-    output_file = f'{token0}_{token1}_analysis.png'
+    # Save the figure with pool address prefix in data directory
+    import os
+    os.makedirs('data', exist_ok=True)
+    
+    # Extract pool address from metadata if available
+    pool_prefix = ""
+    if 'pool_address' in metadata:
+        pool_addr = metadata['pool_address']
+        # Get first 6 chars of address (0x + 4 chars)
+        pool_prefix = f"_{pool_addr[:6]}" if pool_addr.startswith('0x') else ""
+    
+    output_file = f'data/{token0}_{token1}_analysis{pool_prefix}.png'
     plt.savefig(output_file, dpi=150, bbox_inches='tight')
     print(f"Graph saved as '{output_file}'")
     
@@ -586,7 +599,7 @@ def main():
         print(f"Detected pair type: {analyzer.pair_type.value}")
     
     # Create appropriate charts
-    fig = create_generic_charts(df, analyzer, fee_rate)
+    fig = create_generic_charts(df, analyzer, fee_rate, metadata)
     
     # Print summary
     print_summary_statistics(df, analyzer, fee_rate)

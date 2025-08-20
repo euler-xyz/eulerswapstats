@@ -1,0 +1,188 @@
+[
+  {
+    "date": "2025-07-20",
+    "wsteth_price": 4549.236133741291,
+    "weth_price": 3759.1188011350705,
+    "wsteth_eth_ratio_defillama": 1.2101868481431457
+  },
+  {
+    "date": "2025-07-21",
+    "wsteth_price": 4533.82,
+    "weth_price": 3762.8986584229115,
+    "wsteth_eth_ratio_defillama": 1.204874330019877
+  },
+  {
+    "date": "2025-07-22",
+    "wsteth_price": 4472.95,
+    "weth_price": 3717.63,
+    "wsteth_eth_ratio_defillama": 1.2031724512659947
+  },
+  {
+    "date": "2025-07-23",
+    "wsteth_price": 4349.13,
+    "weth_price": 3605.24,
+    "wsteth_eth_ratio_defillama": 1.206335777923245
+  },
+  {
+    "date": "2025-07-24",
+    "wsteth_price": 4526.74,
+    "weth_price": 3751.15,
+    "wsteth_eth_ratio_defillama": 1.2067605934180183
+  },
+  {
+    "date": "2025-07-25",
+    "wsteth_price": 4414.45,
+    "weth_price": 3653.88,
+    "wsteth_eth_ratio_defillama": 1.208154071835966
+  },
+  {
+    "date": "2025-07-26",
+    "wsteth_price": 4519.48,
+    "weth_price": 3745.63,
+    "wsteth_eth_ratio_defillama": 1.2066007587508643
+  },
+  {
+    "date": "2025-07-27",
+    "wsteth_price": 4645.91,
+    "weth_price": 3849.27,
+    "wsteth_eth_ratio_defillama": 1.2069587220434004
+  },
+  {
+    "date": "2025-07-28",
+    "wsteth_price": 4589.82,
+    "weth_price": 3802.29,
+    "wsteth_eth_ratio_defillama": 1.207119919837782
+  },
+  {
+    "date": "2025-07-29",
+    "wsteth_price": 4576.87,
+    "weth_price": 3790.04,
+    "wsteth_eth_ratio_defillama": 1.2076046690800097
+  },
+  {
+    "date": "2025-07-30",
+    "wsteth_price": 4481.48,
+    "weth_price": 3716.22,
+    "wsteth_eth_ratio_defillama": 1.2059242994225314
+  },
+  {
+    "date": "2025-07-31",
+    "wsteth_price": 4541.62,
+    "weth_price": 3752.74,
+    "wsteth_eth_ratio_defillama": 1.2102144033426243
+  },
+  {
+    "date": "2025-08-01",
+    "wsteth_price": 4294.49,
+    "weth_price": 3553.95,
+    "wsteth_eth_ratio_defillama": 1.2083709675150185
+  },
+  {
+    "date": "2025-08-02",
+    "wsteth_price": 4106.05,
+    "weth_price": 3383.65,
+    "wsteth_eth_ratio_defillama": 1.213497258877248
+  },
+  {
+    "date": "2025-08-03",
+    "wsteth_price": 4219.92,
+    "weth_price": 3494.47,
+    "wsteth_eth_ratio_defillama": 1.2075994356798028
+  },
+  {
+    "date": "2025-08-04",
+    "wsteth_price": 4454.62,
+    "weth_price": 3683.23,
+    "wsteth_eth_ratio_defillama": 1.2094330248178908
+  },
+  {
+    "date": "2025-08-05",
+    "wsteth_price": 4333.39,
+    "weth_price": 3580.37,
+    "wsteth_eth_ratio_defillama": 1.2103190452383414
+  },
+  {
+    "date": "2025-08-06",
+    "wsteth_price": 4451.85,
+    "weth_price": 3678.47,
+    "wsteth_eth_ratio_defillama": 1.210245020348134
+  },
+  {
+    "date": "2025-08-07",
+    "wsteth_price": 4626.89,
+    "weth_price": 3829.74,
+    "wsteth_eth_ratio_defillama": 1.2081472893721246
+  },
+  {
+    "date": "2025-08-08",
+    "wsteth_price": 4893.12,
+    "weth_price": 4048.374482741451,
+    "wsteth_eth_ratio_defillama": 1.2086628894781763
+  },
+  {
+    "date": "2025-08-09",
+    "wsteth_price": 5133.69,
+    "weth_price": 4247.52,
+    "wsteth_eth_ratio_defillama": 1.208632331336874
+  },
+  {
+    "date": "2025-08-10",
+    "wsteth_price": 5112.76,
+    "weth_price": 4244.55,
+    "wsteth_eth_ratio_defillama": 1.2045470073388227
+  },
+  {
+    "date": "2025-08-11",
+    "wsteth_price": 5187.16,
+    "weth_price": 4299.763896879902,
+    "wsteth_eth_ratio_defillama": 1.2063825187620258
+  },
+  {
+    "date": "2025-08-12",
+    "wsteth_price": 5432.3,
+    "weth_price": 4499.75,
+    "wsteth_eth_ratio_defillama": 1.207244846935941
+  },
+  {
+    "date": "2025-08-13",
+    "wsteth_price": 5706.19,
+    "weth_price": 4726.69,
+    "wsteth_eth_ratio_defillama": 1.2072274678474788
+  },
+  {
+    "date": "2025-08-14",
+    "wsteth_price": 5489.36,
+    "weth_price": 4545.020854044695,
+    "wsteth_eth_ratio_defillama": 1.207774436307574
+  },
+  {
+    "date": "2025-08-15",
+    "wsteth_price": 5331.4,
+    "weth_price": 4418.33,
+    "wsteth_eth_ratio_defillama": 1.2066550031346686
+  },
+  {
+    "date": "2025-08-16",
+    "wsteth_price": 5334.66,
+    "weth_price": 4416.62,
+    "wsteth_eth_ratio_defillama": 1.2078603094674207
+  },
+  {
+    "date": "2025-08-17",
+    "wsteth_price": 5410.3,
+    "weth_price": 4479.588025469404,
+    "wsteth_eth_ratio_defillama": 1.2077673145920755
+  },
+  {
+    "date": "2025-08-18",
+    "wsteth_price": 5264.792636271186,
+    "weth_price": 4363.127681273108,
+    "wsteth_eth_ratio_defillama": 1.2066556426638846
+  },
+  {
+    "date": "2025-08-19",
+    "wsteth_price": 4981.3,
+    "weth_price": 4118.76,
+    "wsteth_eth_ratio_defillama": 1.2094173974691411
+  }
+]

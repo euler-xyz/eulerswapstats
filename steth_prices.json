@@ -1,0 +1,188 @@
+[
+  {
+    "date": "2025-07-20",
+    "timestamp": 1753036197,
+    "price": 3738.18,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-21",
+    "timestamp": 1753122597,
+    "price": 3778.72,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-22",
+    "timestamp": 1753209001,
+    "price": 3690.2,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-23",
+    "timestamp": 1753295398,
+    "price": 3589.43,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-24",
+    "timestamp": 1753381805,
+    "price": 3727.25,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-25",
+    "timestamp": 1753468189,
+    "price": 3646.11,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-26",
+    "timestamp": 1753554600,
+    "price": 3725.71,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-27",
+    "timestamp": 1753641000,
+    "price": 3859.07,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-28",
+    "timestamp": 1753727401,
+    "price": 3764.82,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-29",
+    "timestamp": 1753813799,
+    "price": 3756.94,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-30",
+    "timestamp": 1753900210,
+    "price": 3799.62,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-07-31",
+    "timestamp": 1753986600,
+    "price": 3769.12,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-01",
+    "timestamp": 1754073003,
+    "price": 3563.51,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-02",
+    "timestamp": 1754159400,
+    "price": 3393.8,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-03",
+    "timestamp": 1754245803,
+    "price": 3485.47,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-04",
+    "timestamp": 1754332199,
+    "price": 3682.56,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-05",
+    "timestamp": 1754418602,
+    "price": 3581.61,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-06",
+    "timestamp": 1754505000,
+    "price": 3677.32,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-07",
+    "timestamp": 1754591400,
+    "price": 3812.88,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-08",
+    "timestamp": 1754677801,
+    "price": 4038.68,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-09",
+    "timestamp": 1754764200,
+    "price": 4225.7,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-10",
+    "timestamp": 1754850600,
+    "price": 4214.7,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-11",
+    "timestamp": 1754937000,
+    "price": 4287.61,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-12",
+    "timestamp": 1755023403,
+    "price": 4493.73,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-13",
+    "timestamp": 1755109798,
+    "price": 4701.58,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-14",
+    "timestamp": 1755196202,
+    "price": 4521.81,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-15",
+    "timestamp": 1755282603,
+    "price": 4411.57,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-16",
+    "timestamp": 1755368996,
+    "price": 4405.31,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-17",
+    "timestamp": 1755455402,
+    "price": 4522.83,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-18",
+    "timestamp": 1755541802,
+    "price": 4336.09,
+    "source": "defillama"
+  },
+  {
+    "date": "2025-08-19",
+    "timestamp": 1755627996,
+    "price": 4169.72,
+    "source": "defillama"
+  }
+]
