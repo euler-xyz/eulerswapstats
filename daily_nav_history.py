@@ -65,37 +65,45 @@ def rpc_call(rpc_url: str, method: str, params: list):
 
 
 def get_block_by_timestamp(timestamp: int) -> int:
-    """Get block number at or after a given timestamp."""
-    # Use binary search to find the block
-    head_hex = rpc_call(DEFAULT_RPC_URL, "eth_blockNumber", [])
-    head = int(head_hex, 16)
+    """Get block number at or after a given timestamp using Etherscan API."""
+    import os
     
-    def get_block_timestamp(block_num: int) -> int:
-        block_hex = hex(block_num)
-        block_data = rpc_call(DEFAULT_RPC_URL, "eth_getBlockByNumber", [block_hex, False])
-        if not block_data:
-            return None
-        return int(block_data["timestamp"], 16)
-    
-    # Binary search
-    left, right = 0, head
-    result = head
-    
-    while left <= right:
-        mid = (left + right) // 2
-        mid_ts = get_block_timestamp(mid)
-        
-        if mid_ts is None:
-            right = mid - 1
-            continue
+    # Try Etherscan API first (much faster than binary search)
+    etherscan_api_key = os.getenv('ETHERSCAN_API_KEY')
+    if etherscan_api_key:
+        try:
+            url = "https://api.etherscan.io/api"
+            params = {
+                'module': 'block',
+                'action': 'getblocknobytime',
+                'timestamp': timestamp,
+                'closest': 'after',  # Get block at or after timestamp
+                'apikey': etherscan_api_key
+            }
             
-        if mid_ts >= timestamp:
-            result = mid
-            right = mid - 1
-        else:
-            left = mid + 1
+            r = requests.get(url, params=params, timeout=10)
+            data = r.json()
+            
+            if data.get('status') == '1' and data.get('result'):
+                block_number = int(data['result'])
+                return block_number
+        except Exception as e:
+            print(f"  Warning: Etherscan API failed ({e}), falling back to estimation")
     
-    return result
+    # Fallback: Estimate block based on ~12 second block time
+    # Reference: block 23179760 at 2025-08-20 12:00:00 UTC
+    reference_block = 23179760
+    reference_timestamp = 1755715200  # 2025-08-20 12:00:00 UTC
+    
+    seconds_diff = timestamp - reference_timestamp
+    blocks_diff = seconds_diff // 12  # ~12 seconds per block
+    estimated_block = reference_block + blocks_diff
+    
+    # Ensure we don't return negative or future blocks
+    if estimated_block < 0:
+        estimated_block = 1
+    
+    return estimated_block
 
 
 def fetch_swap_volumes(pool_address: str, start_date: datetime, end_date: datetime) -> Dict[str, Dict]:
@@ -262,6 +270,54 @@ def get_pool_fee_rate(pool_address: str, chain_id: int = 1) -> float:
 
 
 
+def fetch_all_historical_prices(token_addr: str, days: int) -> Dict[str, float]:
+    """Fetch all historical prices for a token in one API call."""
+    import requests
+    import time
+    from datetime import datetime, timedelta
+    
+    try:
+        # Use CoinGecko market_chart endpoint to get all prices at once
+        url = f"https://api.coingecko.com/api/v3/coins/ethereum/contract/{token_addr.lower()}/market_chart?vs_currency=usd&days={days}"
+        r = requests.get(url, timeout=30)
+        
+        if r.status_code == 429:
+            print("    Rate limited by CoinGecko, waiting 15s...")
+            time.sleep(15)
+            r = requests.get(url, timeout=30)
+        
+        if r.status_code == 200:
+            data = r.json()
+            if 'prices' in data and data['prices']:
+                # Convert to date-indexed dict
+                prices_by_date = {}
+                for timestamp_ms, price in data['prices']:
+                    date = datetime.fromtimestamp(timestamp_ms / 1000)
+                    date_str = date.strftime('%Y-%m-%d')
+                    # Store the last price for each date
+                    prices_by_date[date_str] = price
+                return prices_by_date
+        
+        # Try fallback for native ETH
+        if token_addr.lower() in ['0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', '0x0000000000000000000000000000000000000000']:
+            url = f"https://api.coingecko.com/api/v3/coins/ethereum/market_chart?vs_currency=usd&days={days}"
+            r = requests.get(url, timeout=30)
+            if r.status_code == 200:
+                data = r.json()
+                if 'prices' in data and data['prices']:
+                    prices_by_date = {}
+                    for timestamp_ms, price in data['prices']:
+                        date = datetime.fromtimestamp(timestamp_ms / 1000)
+                        date_str = date.strftime('%Y-%m-%d')
+                        prices_by_date[date_str] = price
+                    return prices_by_date
+        
+        return {}
+    except Exception as e:
+        print(f"    Error fetching historical prices: {e}")
+        return {}
+
+
 def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) -> List[Dict]:
     """Get daily NAV history for a pool."""
     
@@ -307,6 +363,19 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
     
     print(f"Fetching daily NAV history for {token0_symbol}/{token1_symbol}")
     print(f"From {start_date.strftime('%Y-%m-%d')} to {now.strftime('%Y-%m-%d')}")
+    
+    # Pre-fetch all historical prices in just 2 API calls
+    print("Fetching all historical prices...")
+    prices_token0 = fetch_all_historical_prices(token0_addr, days + 1) if token0_addr else {}
+    time.sleep(3)  # Wait between API calls to avoid rate limiting
+    prices_token1 = fetch_all_historical_prices(token1_addr, days + 1) if token1_addr else {}
+    
+    if not prices_token0 or not prices_token1:
+        print("Warning: Could not fetch all historical prices, falling back to per-day fetching")
+    else:
+        print(f"  Got {len(prices_token0)} days of {token0_symbol} prices")
+        print(f"  Got {len(prices_token1)} days of {token1_symbol} prices")
+    
     print("-" * 80)
     
     while current_date <= now:
@@ -326,12 +395,20 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
             # Fetch pool data at this block
             pool_data = fetch_pool_data(V1_API, chain_id, pool_address, block)
             
-            # Calculate NAV
-            nav_result = calculate_net_nav(pool_data, DEFAULT_GRAPHQL, chain_id, block)
+            # Get prices from pre-fetched data or fall back to individual calls
+            if date_str in prices_token0 and date_str in prices_token1:
+                # Use pre-fetched prices (much faster!)
+                price0 = int(prices_token0[date_str] * 1e8)
+                price1 = int(prices_token1[date_str] * 1e8)
+            else:
+                # Fall back to individual API calls (this shouldn't happen if pre-fetch worked)
+                print(f"    DEBUG: Falling back to API for {date_str} - token0: {date_str in prices_token0}, token1: {date_str in prices_token1}")
+                price0, _ = fetch_price(DEFAULT_GRAPHQL, chain_id, token0_addr, block=block)
+                time.sleep(2)  # Wait 2 seconds between price calls
+                price1, _ = fetch_price(DEFAULT_GRAPHQL, chain_id, token1_addr, block=block)
             
-            # Get prices at this block
-            price0, _ = fetch_price(DEFAULT_GRAPHQL, chain_id, token0_addr, block=block)
-            price1, _ = fetch_price(DEFAULT_GRAPHQL, chain_id, token1_addr, block=block)
+            # Calculate NAV with pre-fetched prices
+            nav_result = calculate_net_nav(pool_data, DEFAULT_GRAPHQL, chain_id, block, prices=(price0, price1))
             
             # Extract net positions from the positions structure
             positions = nav_result.get('positions', {})

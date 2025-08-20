@@ -5,3 +5,4 @@ token_metadata.csv
 .sesskey
 __pycache__/
 *.csv
+.env

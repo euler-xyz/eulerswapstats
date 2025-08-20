@@ -59,49 +59,110 @@ def fetch_pool_data(rest_api: str, chain: int, pool: str, block: int = None) -> 
 
 
 def fetch_price(graphql: str, chain: int, asset: str, source: str = "oracle", block: int = None) -> Tuple[int, int]:
-    """Fetch price for an asset at or before block.
+    """Fetch price for an asset using CoinGecko.
     
     Args:
-        graphql: GraphQL endpoint URL
+        graphql: GraphQL endpoint URL (kept for compatibility, not used)
         chain: Chain ID
         asset: Asset address
-        source: Price source (default: "oracle")
+        source: Price source (kept for compatibility, not used)
         block: Optional block number for historical price
     
     Returns:
         Tuple of (price, scale) where scale is typically 1e8 or 1e18
     """
-    where_clause = f'chainId: {chain}, asset: "{asset.lower()}", source: "{source}"'
-    if block:
-        where_clause += f', blockNumber_lte: "{block}"'
+    asset_lower = asset.lower()
     
-    query = f"""
-    query {{
-      priceCrons(
-        where: {{ {where_clause} }}
-        orderBy: "blockNumber"
-        orderDirection: "desc"
-        limit: 1
-      ) {{
-        items {{ price }}
-      }}
-    }}
-    """
-    
-    r = requests.post(graphql, json={"query": query}, timeout=30)
-    r.raise_for_status()
-    
-    data = r.json()
-    items = data.get("data", {}).get("priceCrons", {}).get("items", [])
-    if not items:
-        raise RuntimeError(f"No price found for {asset}")
-    
-    price = int(items[0]["price"])
-    
-    # The GraphQL prices are always in 1e8 scale for USD prices
-    scale = 10**8
-    
-    return price, scale
+    try:
+        import time
+        from datetime import datetime, timedelta
+        
+        # If block is provided, we need to estimate the timestamp
+        if block:
+            # Rough estimation: ~12 second blocks on Ethereum
+            # Current block ~23179760 at 2025-08-20
+            current_block = 23179760
+            current_time = datetime(2025, 8, 20, 12, 0, 0)
+            
+            blocks_diff = current_block - block
+            seconds_diff = blocks_diff * 12
+            target_time = current_time - timedelta(seconds=seconds_diff)
+            
+            # Calculate days ago for CoinGecko API
+            days_ago = (current_time - target_time).days + 1  # Add 1 to ensure we get the date
+            
+            # For historical prices, use market_chart endpoint
+            # First try with contract address
+            url = f"https://api.coingecko.com/api/v3/coins/ethereum/contract/{asset_lower}/market_chart?vs_currency=usd&days={days_ago}"
+            r = requests.get(url, timeout=30)
+            
+            if r.status_code == 429:
+                # CoinGecko free tier: 5-30 calls/minute
+                # Wait 15 seconds to ensure we're under the limit
+                print(f"    Rate limited by CoinGecko, waiting 15s...")
+                time.sleep(15)
+                r = requests.get(url, timeout=30)
+            
+            if r.status_code == 200:
+                data = r.json()
+                if 'prices' in data and data['prices']:
+                    # Find the price closest to our target timestamp
+                    target_ts = int(target_time.timestamp() * 1000)  # CoinGecko uses milliseconds
+                    closest_price = min(data['prices'], key=lambda x: abs(x[0] - target_ts))
+                    price_usd = closest_price[1]
+                else:
+                    raise RuntimeError(f"No historical price data for {asset}")
+            else:
+                # Fallback for native ETH
+                if asset_lower in ['0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', '0x0000000000000000000000000000000000000000']:
+                    eth_url = f"https://api.coingecko.com/api/v3/coins/ethereum/market_chart?vs_currency=usd&days={days_ago}"
+                    r = requests.get(eth_url, timeout=30)
+                    r.raise_for_status()
+                    data = r.json()
+                    if 'prices' in data and data['prices']:
+                        target_ts = int(target_time.timestamp() * 1000)
+                        closest_price = min(data['prices'], key=lambda x: abs(x[0] - target_ts))
+                        price_usd = closest_price[1]
+                    else:
+                        raise RuntimeError("No historical ETH price data")
+                else:
+                    raise RuntimeError(f"No historical price data for {asset}")
+        else:
+            # Current price - use simple endpoint
+            url = f"https://api.coingecko.com/api/v3/simple/token_price/ethereum?contract_addresses={asset_lower}&vs_currencies=usd"
+            r = requests.get(url, timeout=30)
+            
+            if r.status_code == 429:
+                # CoinGecko free tier: 5-30 calls/minute
+                # Wait 15 seconds to ensure we're under the limit
+                print(f"    Rate limited by CoinGecko, waiting 15s...")
+                time.sleep(15)
+                r = requests.get(url, timeout=30)
+            
+            r.raise_for_status()
+            
+            data = r.json()
+            if asset_lower not in data or 'usd' not in data[asset_lower]:
+                # Fallback for native ETH
+                if asset_lower in ['0xeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeeee', '0x0000000000000000000000000000000000000000']:
+                    eth_url = "https://api.coingecko.com/api/v3/simple/price?ids=ethereum&vs_currencies=usd"
+                    r = requests.get(eth_url, timeout=30)
+                    r.raise_for_status()
+                    eth_data = r.json()
+                    price_usd = eth_data['ethereum']['usd']
+                else:
+                    raise RuntimeError(f"No price data for {asset}")
+            else:
+                price_usd = data[asset_lower]['usd']
+        
+        # Convert to integer with 1e8 scale (matching GraphQL format)
+        price = int(price_usd * 10**8)
+        scale = 10**8
+        
+        return price, scale
+        
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch price for {asset}: {e}")
 
 
 def fetch_pool_created_at(graphql: str, chain: int, pool: str) -> int:
@@ -229,7 +290,7 @@ def fetch_token_symbol(graphql_url: str, chain: int, address: str) -> str:
     return fallback_tokens.get(address.lower(), address[:8] + "...")
 
 
-def calculate_net_nav(pool_data: Dict[str, Any], graphql_url: str = DEFAULT_GRAPHQL, chain: int = 1, block: int = None) -> Dict[str, Any]:
+def calculate_net_nav(pool_data: Dict[str, Any], graphql_url: str = DEFAULT_GRAPHQL, chain: int = 1, block: int = None, prices: Tuple[int, int] = None) -> Dict[str, Any]:
     """Calculate net NAV from vault lending positions.
     
     Args:
@@ -237,6 +298,7 @@ def calculate_net_nav(pool_data: Dict[str, Any], graphql_url: str = DEFAULT_GRAP
         graphql_url: GraphQL endpoint URL
         chain: Chain ID
         block: Optional block number for historical prices
+        prices: Optional tuple of (price0, price1) to avoid API calls
     
     Returns:
         Dictionary with NAV and position details
@@ -262,9 +324,14 @@ def calculate_net_nav(pool_data: Dict[str, Any], graphql_url: str = DEFAULT_GRAP
     v1_borrowed = int(vault1["accountNav"]["borrowed"])
     v1_assets = int(vault1["accountNav"]["assets"])
     
-    # Fetch prices (at block if specified)
-    p0, scale0 = fetch_price(graphql_url, chain, asset0, block=block)
-    p1, scale1 = fetch_price(graphql_url, chain, asset1, block=block)
+    # Use provided prices or fetch them
+    if prices:
+        p0, p1 = prices
+        scale0 = scale1 = 10**8  # Standard scale for our prices
+    else:
+        # Fetch prices (at block if specified)
+        p0, scale0 = fetch_price(graphql_url, chain, asset0, block=block)
+        p1, scale1 = fetch_price(graphql_url, chain, asset1, block=block)
     
     # Use the same scale for both (they should match)
     scale = scale0
