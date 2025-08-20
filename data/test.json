@@ -1,0 +1,54 @@
+{
+  "metadata": {
+    "pool_address": "0x2D24b7be7942c25Ea7dd0092235dA7E618dFe8A8",
+    "chain_id": 1,
+    "fee_rate": 1e-05,
+    "fee_bps": 0.1,
+    "token0_symbol": "RLUSD",
+    "token1_symbol": "USDC"
+  },
+  "daily_data": [
+    {
+      "date": "2025-08-19",
+      "block": 23172587,
+      "nav": 23658.47580822997,
+      "nav_usd": 23658.47580822997,
+      "net0": -1147.9057043160794,
+      "net1": 24808.657955,
+      "price0": 1.0,
+      "price1": 0.99990824,
+      "value0": -1147.9057043160794,
+      "value1": 24806.38151254605,
+      "nav_in_quote": 23660.646909190356,
+      "nav_quote": 23660.646909190356,
+      "swap_count": 5,
+      "volume_token0": 331304.8727685868,
+      "volume_token1": 3.31277127864e-07,
+      "volume_usd": 165652.43638445903,
+      "daily_volume": 165652.43638445903,
+      "token0_symbol": "RLUSD",
+      "token1_symbol": "USDC"
+    },
+    {
+      "date": "2025-08-20",
+      "block": 23179760,
+      "nav": 23665.67378714744,
+      "nav_usd": 23665.67378714744,
+      "net0": -44487.63608366721,
+      "net1": 68160.735983,
+      "price0": 1.0,
+      "price1": 0.99989105,
+      "value0": -44487.63608366721,
+      "value1": 68153.30987081466,
+      "nav_in_quote": 23668.25244325113,
+      "nav_quote": 23668.25244325113,
+      "swap_count": 6,
+      "volume_token0": 478319.7315044373,
+      "volume_token1": 4.78261425424e-07,
+      "volume_usd": 239159.86575245776,
+      "daily_volume": 239159.86575245776,
+      "token0_symbol": "RLUSD",
+      "token1_symbol": "USDC"
+    }
+  ]
+}

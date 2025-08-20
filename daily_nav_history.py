@@ -545,7 +545,18 @@ def main():
         )
         
         # Determine output filename
-        output_file = args.output if args.output else f"{args.pool}.json"
+        import os
+        os.makedirs('data', exist_ok=True)
+        
+        if args.output:
+            # If output specified, use it (but still in data directory if not absolute path)
+            if not os.path.isabs(args.output):
+                output_file = f"data/{args.output}"
+            else:
+                output_file = args.output
+        else:
+            # Default to pool address in data directory
+            output_file = f"data/{args.pool}.json"
         
         # Always save to JSON
         # Convert datetime to string for JSON serialization
