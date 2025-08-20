@@ -20,9 +20,9 @@ DEFAULT_GRAPHQL = "https://index-dev.euler.finance/graphql"
 DEFAULT_RPC_URL = "https://ethereum.publicnode.com"
 
 # Retry configuration
-MAX_RETRIES = 3
+MAX_RETRIES = 10
 INITIAL_RETRY_DELAY = 1  # seconds
-MAX_RETRY_DELAY = 16  # seconds
+MAX_RETRY_DELAY = 30  # seconds
 
 
 def retry_with_backoff(func, *args, **kwargs):
@@ -38,7 +38,7 @@ def retry_with_backoff(func, *args, **kwargs):
             if attempt < MAX_RETRIES - 1:
                 # Check if it's a server error worth retrying
                 error_msg = str(e).lower()
-                if any(x in error_msg for x in ['502', '503', '504', '520', 'timeout', 'connection']):
+                if any(x in error_msg for x in ['500', '502', '503', '504', '520', 'timeout', 'connection', 'server error']):
                     print(f"    Retry {attempt + 1}/{MAX_RETRIES} after {delay}s due to: {e}")
                     time.sleep(delay)
                     delay = min(delay * 2, MAX_RETRY_DELAY)  # Exponential backoff with cap
