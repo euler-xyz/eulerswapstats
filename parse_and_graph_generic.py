@@ -256,6 +256,18 @@ def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate: fl
         ax.axhline(y=df['nav_usd'].iloc[0] / nav_scale, color='r', linestyle='--', alpha=0.5, label='Starting NAV')
         ax.legend()
         ax.xaxis.set_major_formatter(date_format)
+        
+        # Add USD APR annotation
+        initial_nav_usd = df['nav_usd'].iloc[0]
+        final_nav_usd = df['nav_usd'].iloc[-1]
+        days = len(df)
+        usd_return_pct = ((final_nav_usd/initial_nav_usd - 1) * 100) if initial_nav_usd > 0 else 0
+        usd_apr = usd_return_pct * (365 / days) if days > 0 else 0
+        
+        ax.text(0.02, 0.98, f'USD APR: {usd_apr:.1f}%', 
+                transform=ax.transAxes, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='lightblue', alpha=0.7))
+        
         chart_idx += 1
     
     # 2. NAV in Quote Token
@@ -272,6 +284,18 @@ def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate: fl
         ax.axhline(y=df['nav_quote'].iloc[0] / nav_scale, color='r', linestyle='--', alpha=0.5, label='Starting NAV')
         ax.legend()
         ax.xaxis.set_major_formatter(date_format)
+        
+        # Add Quote Token APR annotation
+        initial_nav_quote = df['nav_quote'].iloc[0]
+        final_nav_quote = df['nav_quote'].iloc[-1]
+        days = len(df)
+        quote_return_pct = ((final_nav_quote/initial_nav_quote - 1) * 100) if initial_nav_quote > 0 else 0
+        quote_apr = quote_return_pct * (365 / days) if days > 0 else 0
+        
+        ax.text(0.02, 0.98, f'{token1} APR: {quote_apr:.1f}%', 
+                transform=ax.transAxes, verticalalignment='top',
+                bbox=dict(boxstyle='round', facecolor='lightgreen', alpha=0.7))
+        
         chart_idx += 1
     
     # 3. Price Ratio
@@ -408,7 +432,19 @@ def create_generic_charts(df: pd.DataFrame, analyzer: PairAnalyzer, fee_rate: fl
         # Show fee rate and APR
         fee_bps = fee_rate * 10000
         
-        text = f'Fee Rate: {fee_bps:.2f}bps\nFee APR: {fee_apr:.2f}%'
+        # Calculate total annualized returns
+        initial_nav_usd = df['nav_usd'].iloc[0]
+        final_nav_usd = df['nav_usd'].iloc[-1]
+        initial_nav_quote = df['nav_quote'].iloc[0]
+        final_nav_quote = df['nav_quote'].iloc[-1]
+        
+        usd_return_pct = ((final_nav_usd/initial_nav_usd - 1) * 100) if initial_nav_usd > 0 else 0
+        quote_return_pct = ((final_nav_quote/initial_nav_quote - 1) * 100) if initial_nav_quote > 0 else 0
+        usd_apr = usd_return_pct * (365 / days) if days > 0 else 0
+        quote_apr = quote_return_pct * (365 / days) if days > 0 else 0
+        
+        token1 = analyzer.token1
+        text = f'Fee Rate: {fee_bps:.2f}bps\nFee APR: {fee_apr:.2f}%\n\nTotal Returns:\nUSD APR: {usd_apr:.2f}%\n{token1} APR: {quote_apr:.2f}%'
             
         ax.text(0.02, 0.98, text, 
                 transform=ax.transAxes, verticalalignment='top',
