@@ -18,10 +18,27 @@ pip install pandas matplotlib requests tabulate
 
 ## Quick Start - Universal Workflow
 
-### For ANY Pool (Recommended)
+### Method 1: Using V2 API Account NAV (Simplified, No Price Data Needed)
 
 ```bash
-# Step 1: Fetch daily NAV history for any pool
+# Step 1: Fetch account NAV data from V2 API (includes interest, fees, volume)
+python daily_account_nav.py --pool <POOL_ADDRESS> --days 30 --output data/account_nav.json
+
+# Step 2: Generate comprehensive visualization with interest/fee analysis
+python parse_and_graph_account_nav.py --input data/account_nav.json
+```
+
+This method:
+- Uses pre-calculated NAV from V2 API (includes all vaults)
+- Tracks interest earned vs paid
+- Shows fee accumulation
+- Displays trading volume and APR metrics
+- Creates a 6-panel visualization focused on pool economics
+
+### Method 2: Traditional NAV with Price Data (For Price Analysis)
+
+```bash
+# Step 1: Fetch daily NAV history with price data
 python daily_nav_history.py --pool <POOL_ADDRESS> --days 30 --output data.json
 
 # Step 2: Generate type-specific visualization (auto-detects pool type)
@@ -36,7 +53,14 @@ The generic analyzer automatically:
 
 ### Examples
 
-**Stablecoin Pool (USDe/USDT):**
+**V2 API Account NAV (wstETH/WETH with interest/fees):**
+```bash
+python daily_account_nav.py --pool 0x55dcf9455EEe8Fd3f5EEd17606291272cDe428a8 --days 30
+python parse_and_graph_account_nav.py --input data/account_nav_0x55dc.json
+# Output: account_nav_wstETH_WETH_0x55dc.png with interest, fees, volume analysis
+```
+
+**Stablecoin Pool (USDe/USDT with price analysis):**
 ```bash
 python daily_nav_history.py --pool 0x794138c7067d38a46CE29fc84bA661678fAAe8a8 --days 30 --output usde_usdt.json
 python parse_and_graph_generic.py --input usde_usdt.json
