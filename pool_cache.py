@@ -132,15 +132,48 @@ def get_pool_creation_block(pool_address: str,
         print(f"Using cached creation block for {pool_address[:10]}...")
         return cached['created_at'], cached['creation_block']
     
-    # Not in cache, fetch from GraphQL and RPC
+    # Not in cache, fetch from GraphQL and estimate block
     print(f"Fetching creation block for {pool_address[:10]}... (not in cache)")
     
     try:
         # Get creation timestamp from GraphQL
         created_at = _original_fetch_pool_created_at(DEFAULT_GRAPHQL, chain_id, pool_address)
         
-        # Get block number at that timestamp
-        creation_block = _original_block_at_or_after_timestamp(DEFAULT_RPC_URL, created_at)
+        # Estimate block number from timestamp (much faster than binary search)
+        # Using ~12 second block time on Ethereum
+        import os
+        etherscan_api_key = os.getenv('ETHERSCAN_API_KEY')
+        
+        if etherscan_api_key:
+            # Try Etherscan API for accurate block
+            try:
+                import requests
+                url = "https://api.etherscan.io/api"
+                params = {
+                    'module': 'block',
+                    'action': 'getblocknobytime',
+                    'timestamp': created_at,
+                    'closest': 'after',
+                    'apikey': etherscan_api_key
+                }
+                r = requests.get(url, params=params, timeout=10)
+                data = r.json()
+                if data.get('status') == '1' and data.get('result'):
+                    creation_block = int(data['result'])
+                else:
+                    raise Exception("Etherscan API failed")
+            except:
+                # Fallback to estimation
+                reference_block = 23179760
+                reference_timestamp = 1755715200  # 2025-08-20 12:00:00 UTC
+                blocks_diff = (created_at - reference_timestamp) // 12
+                creation_block = reference_block + blocks_diff
+        else:
+            # Direct estimation without Etherscan
+            reference_block = 23179760
+            reference_timestamp = 1755715200  # 2025-08-20 12:00:00 UTC
+            blocks_diff = (created_at - reference_timestamp) // 12
+            creation_block = reference_block + blocks_diff
         
         # Save to cache
         if use_cache:
@@ -152,6 +185,47 @@ def get_pool_creation_block(pool_address: str,
     except Exception as e:
         print(f"Error fetching creation data for {pool_address}: {e}")
         raise
+
+
+def get_pool_deployment_info(pool_address: str, chain_id: int = 1) -> Dict:
+    """
+    Get complete pool deployment information from GraphQL.
+    
+    Returns:
+        Dict with pool, createdAt, eulerAccount, asset0, asset1
+    """
+    import requests
+    
+    query = f"""
+    query {{
+      eulerSwapFactoryPoolDeployed(chainId: {chain_id}, pool: "{pool_address.lower()}") {{
+        pool
+        createdAt
+        eulerAccount
+        asset0
+        asset1
+      }}
+    }}
+    """
+    
+    try:
+        r = requests.post(DEFAULT_GRAPHQL, json={"query": query}, timeout=30)
+        r.raise_for_status()
+        data = r.json()
+        
+        deployment = data.get("data", {}).get("eulerSwapFactoryPoolDeployed")
+        if deployment:
+            return {
+                'pool': deployment.get('pool', ''),
+                'created_at': int(deployment.get('createdAt', 0)),
+                'euler_account': deployment.get('eulerAccount', ''),
+                'asset0': deployment.get('asset0', ''),
+                'asset1': deployment.get('asset1', '')
+            }
+    except Exception as e:
+        print(f"Error fetching deployment info: {e}")
+    
+    return {}
 
 
 def clear_cache():
