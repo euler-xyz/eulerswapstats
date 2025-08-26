@@ -117,7 +117,7 @@ class PairAnalyzer:
             base_config.update({
                 'peg_deviation': True,
                 'spread_analysis': True,
-                'price_ratio_label': f'{self.token0}/{self.token1} Ratio (should be ~1.0)'
+                'price_ratio_label': f'{self.token0}/{self.token1} Ratio'
             })
         elif self.pair_type == PairType.LST_BASE:
             base_config.update({
