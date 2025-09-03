@@ -3,6 +3,7 @@
 Show daily NAV history for a pool along with token prices.
 """
 import argparse
+import csv
 import json
 import requests
 import time
@@ -18,6 +19,54 @@ V1_API = "https://index-dev.eul.dev/v1/swap/pools"
 V2_API = "https://index-dev.eul.dev/v2/swap/pools"
 DEFAULT_GRAPHQL = "https://index-dev.euler.finance/graphql"
 DEFAULT_RPC_URL = "https://ethereum.publicnode.com"
+
+def get_token_decimals(token_address: str) -> int:
+    """Fetch token decimals from the blockchain via RPC."""
+    if not token_address:
+        raise ValueError("Token address cannot be empty")
+    
+    # ERC20 decimals() function selector
+    decimals_selector = "0x313ce567"
+    
+    # First check known values for common tokens
+    known_decimals = {
+        '0xa0b86991c6218b36c1d19d4a2e9eb0ce3606eb48': 6,   # USDC
+        '0xdac17f958d2ee523a2206206994597c13d831ec7': 6,   # USDT
+        '0x2260fac5e5542a773aa44fbcfedf7c193bc2c599': 8,   # WBTC
+        '0x6c3ea9036406852006290770bedfcaba0e23a0e8': 6,   # PYUSD
+    }
+    
+    addr_lower = token_address.lower()
+    if addr_lower in known_decimals:
+        return known_decimals[addr_lower]
+    
+    try:
+        # Make eth_call to get decimals
+        payload = {
+            "jsonrpc": "2.0",
+            "method": "eth_call",
+            "params": [{
+                "to": token_address,
+                "data": decimals_selector
+            }, "latest"],
+            "id": 1
+        }
+        
+        r = requests.post(DEFAULT_RPC_URL, json=payload, timeout=10)
+        r.raise_for_status()
+        result = r.json()
+        
+        if 'result' in result and result['result'] != '0x':
+            # Convert hex to int
+            decimals = int(result['result'], 16)
+            if 0 < decimals <= 77:  # Sanity check
+                return decimals
+            else:
+                raise ValueError(f"Invalid decimals value {decimals} for token {token_address}")
+        else:
+            raise RuntimeError(f"Empty response when fetching decimals for {token_address}")
+    except Exception as e:
+        raise RuntimeError(f"Failed to fetch decimals for {token_address}: {e}")
 
 # Retry configuration
 MAX_RETRIES = 10
@@ -106,8 +155,14 @@ def get_block_by_timestamp(timestamp: int) -> int:
     return estimated_block
 
 
-def fetch_swap_volumes(pool_address: str, start_date: datetime, end_date: datetime) -> Dict[str, Dict]:
+def fetch_swap_volumes(pool_address: str, start_date: datetime, end_date: datetime, 
+                      token0_addr: str = None, token1_addr: str = None) -> Dict[str, Dict]:
     """Fetch daily swap volumes from GraphQL with cursor-based pagination."""
+    
+    # Get token decimals once at the start
+    decimals0 = get_token_decimals(token0_addr) if token0_addr else 18
+    decimals1 = get_token_decimals(token1_addr) if token1_addr else 18
+    print(f"  Token decimals: token0={decimals0}, token1={decimals1}")
     
     daily_volumes = {}
     all_swaps = []
@@ -217,11 +272,11 @@ def fetch_swap_volumes(pool_address: str, start_date: datetime, end_date: dateti
                 
             date_str = swap_date.strftime('%Y-%m-%d')
             
-            # Parse amounts (in wei)
-            amt0_in = int(swap['amount0In']) / 1e18 if swap['amount0In'] else 0
-            amt1_in = int(swap['amount1In']) / 1e18 if swap['amount1In'] else 0
-            amt0_out = int(swap['amount0Out']) / 1e18 if swap['amount0Out'] else 0
-            amt1_out = int(swap['amount1Out']) / 1e18 if swap['amount1Out'] else 0
+            # Parse amounts using correct decimals
+            amt0_in = int(swap['amount0In']) / (10 ** decimals0) if swap['amount0In'] else 0
+            amt1_in = int(swap['amount1In']) / (10 ** decimals1) if swap['amount1In'] else 0
+            amt0_out = int(swap['amount0Out']) / (10 ** decimals0) if swap['amount0Out'] else 0
+            amt1_out = int(swap['amount1Out']) / (10 ** decimals1) if swap['amount1Out'] else 0
             
             if date_str not in daily_volumes:
                 daily_volumes[date_str] = {
@@ -327,7 +382,8 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
     print(f"Pool fee rate: {fee_bps:.2f} bps ({fee_rate*100:.3f}%)")
     
     # Get pool creation info
-    created_at, creation_block = get_pool_creation_block(pool_address, chain_id)
+    # Note: third value is actually last_available_block from cache (misnamed for historical reasons)
+    created_at, creation_block, last_available_from_cache = get_pool_creation_block(pool_address, chain_id)
     creation_date = datetime.fromtimestamp(created_at)
     
     # Get current time
@@ -336,15 +392,7 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
     # Determine start date (either creation or N days ago)
     start_date = max(creation_date, now - timedelta(days=days))
     
-    # Fetch daily swap volumes
-    print("Fetching swap volumes...")
-    daily_volumes = fetch_swap_volumes(pool_address, start_date, now)
-    
-    # Generate daily timestamps from start to now
-    daily_data = []
-    current_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
-    
-    # Get token info from V2 API
+    # Get token info from V2 API first (needed for decimals)
     r = retry_with_backoff(requests.get, V2_API, params={"chainId": chain_id})
     pools_v2 = r.json()
     token0_addr = None
@@ -358,8 +406,79 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
             token1_addr = vault1.get('asset', '')
             break
     
+    # Check if pool is active
+    pool_is_active = False
+    for p in pools_v2:
+        if p['pool'].lower() == pool_address.lower():
+            pool_is_active = True
+            break
+    
+    # If not found in V2 API (inactive pool), try GraphQL
+    if not token0_addr or not token1_addr:
+        print("Pool not found in V2 API, checking GraphQL for token addresses...")
+        query = f'''
+        query {{
+          pools: eulerSwapFactoryPoolDeployeds(
+            where: {{chainId: {chain_id}, pool: "{pool_address.lower()}"}}
+          ) {{
+            items {{
+              asset0
+              asset1
+            }}
+          }}
+        }}
+        '''
+        
+        try:
+            r = retry_with_backoff(requests.post, DEFAULT_GRAPHQL, json={"query": query}, timeout=30)
+            r.raise_for_status()
+            data = r.json()
+            
+            items = data.get("data", {}).get("pools", {}).get("items", [])
+            if items:
+                pool_data = items[0]
+                token0_addr = pool_data.get('asset0', '')
+                token1_addr = pool_data.get('asset1', '')
+                print(f"  Found tokens in GraphQL: {token0_addr[:10]}... / {token1_addr[:10]}...")
+                print(f"  WARNING: This is an INACTIVE/UNINSTALLED pool - historical NAV data may not be available")
+            else:
+                print(f"  WARNING: Pool {pool_address} not found in GraphQL either")
+        except Exception as e:
+            print(f"  Error fetching from GraphQL: {e}")
+    
     token0_symbol = get_token_symbol(token0_addr) if token0_addr else 'Token0'
     token1_symbol = get_token_symbol(token1_addr) if token1_addr else 'Token1'
+    
+    # For now, assume pools are available from creation block
+    # TODO: Add proper tracking of first available block (API indexing delay)
+    query_start_block = creation_block
+    
+    # Check for last available block from cache (for inactive/uninstalled pools)
+    max_query_block = None
+    if not pool_is_active:
+        print(f"  WARNING: This pool appears to be INACTIVE/UNINSTALLED")
+        print(f"  Will attempt to fetch historical data but it may not be available")
+        
+        # Try to get last available block from cache
+        try:
+            with open('pool_creation_blocks.csv', 'r') as f:
+                reader = csv.DictReader(f)
+                for row in reader:
+                    if row['pool_address'].lower() == pool_address.lower():
+                        if row.get('last_available_block'):
+                            max_query_block = int(row['last_available_block'])
+                            print(f"  Pool was last available at block {max_query_block}")
+                        break
+        except Exception as e:
+            print(f"  Could not read last available block from cache: {e}")
+    
+    # Fetch daily swap volumes
+    print("Fetching swap volumes...")
+    daily_volumes = fetch_swap_volumes(pool_address, start_date, now, token0_addr, token1_addr)
+    
+    # Generate daily timestamps from start to now
+    daily_data = []
+    current_date = start_date.replace(hour=0, minute=0, second=0, microsecond=0)
     
     print(f"Fetching daily NAV history for {token0_symbol}/{token1_symbol}")
     print(f"From {start_date.strftime('%Y-%m-%d')} to {now.strftime('%Y-%m-%d')}")
@@ -388,12 +507,18 @@ def get_daily_nav_history(pool_address: str, chain_id: int = 1, days: int = 30) 
             block = get_block_by_timestamp(timestamp)
             
             # Skip if block is before pool creation
-            if block < creation_block:
+            if block < query_start_block:
                 print(f"  {date_str}: Skipped (before pool creation at block {creation_block})")
                 return None
             
+            # For inactive pools, skip if block is after last available
+            if max_query_block and block > max_query_block:
+                print(f"  {date_str}: Skipped (pool was uninstalled, block {block} > last available {max_query_block})")
+                return None
+            
             # Fetch pool data at this block
-            pool_data = fetch_pool_data(V1_API, chain_id, pool_address, block)
+            # Use V2 API which supports blockNumber parameter
+            pool_data = fetch_pool_data(V2_API, chain_id, pool_address, block)
             
             # Get prices from pre-fetched data or fall back to individual calls
             if date_str in prices_token0 and date_str in prices_token1:

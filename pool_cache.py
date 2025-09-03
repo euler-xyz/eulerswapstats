@@ -106,7 +106,7 @@ def _save_cache_entry(pool_address: str, chain_id: int, created_at: int, creatio
 
 def get_pool_creation_block(pool_address: str, 
                            chain_id: int = 1,
-                           use_cache: bool = True) -> Tuple[int, int]:
+                           use_cache: bool = True) -> Tuple[int, int, Optional[int]]:
     """
     Get pool creation timestamp and block number with caching.
     
@@ -116,7 +116,8 @@ def get_pool_creation_block(pool_address: str,
         use_cache: Whether to use cache (default: True)
     
     Returns:
-        Tuple of (created_at_timestamp, creation_block_number)
+        Tuple of (created_at_timestamp, creation_block_number, last_available_block)
+        Note: third value is last_available_block from cache (may be None)
     """
     global _memory_cache
     
@@ -130,7 +131,10 @@ def get_pool_creation_block(pool_address: str,
     if use_cache and cache_key in _memory_cache:
         cached = _memory_cache[cache_key]
         print(f"Using cached creation block for {pool_address[:10]}...")
-        return cached['created_at'], cached['creation_block']
+        # Note: We're returning last_available_block as third value for backward compatibility
+        # TODO: This should be refactored to return a proper structure
+        last_available = cached.get('last_available_block')
+        return cached['created_at'], cached['creation_block'], last_available
     
     # Not in cache, fetch from GraphQL and estimate block
     print(f"Fetching creation block for {pool_address[:10]}... (not in cache)")
@@ -180,7 +184,7 @@ def get_pool_creation_block(pool_address: str,
             _save_cache_entry(pool_address, chain_id, created_at, creation_block)
             print(f"Cached creation data for {pool_address[:10]}...")
         
-        return created_at, creation_block
+        return created_at, creation_block, None
         
     except Exception as e:
         print(f"Error fetching creation data for {pool_address}: {e}")
@@ -264,7 +268,7 @@ def fetch_pool_created_at(graphql: str, chain: int, pool: str) -> int:
     Cached version of fetch_pool_created_at.
     Ignores graphql parameter and uses DEFAULT_GRAPHQL.
     """
-    created_at, _ = get_pool_creation_block(pool, chain)
+    created_at, _, _ = get_pool_creation_block(pool, chain)
     return created_at
 
 
@@ -350,13 +354,13 @@ if __name__ == "__main__":
             
             # First call (will fetch from API)
             print("\nFirst call (should fetch from API):")
-            ts1, block1 = get_pool_creation_block(pool)
-            print(f"  Timestamp: {ts1}, Block: {block1}")
+            ts1, block1, last1 = get_pool_creation_block(pool)
+            print(f"  Timestamp: {ts1}, Block: {block1}, Last Available: {last1}")
             
             # Second call (should use cache)
             print("\nSecond call (should use cache):")
-            ts2, block2 = get_pool_creation_block(pool)
-            print(f"  Timestamp: {ts2}, Block: {block2}")
+            ts2, block2, last2 = get_pool_creation_block(pool)
+            print(f"  Timestamp: {ts2}, Block: {block2}, Last Available: {last2}")
             
             assert ts1 == ts2 and block1 == block2, "Cache inconsistency!"
             print("\nCache test passed!")
