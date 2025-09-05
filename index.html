@@ -92,6 +92,7 @@
                     <div>
                         <div class="token-pair" id="tokenPair">-</div>
                         <div class="pool-address" id="poolAddr">-</div>
+                        <div class="pool-address" id="creationBlock" style="color: #10b981; font-size: 11px;">-</div>
                     </div>
                     <div>
                         <span class="fee-badge" id="feeBadge">-</span>
@@ -309,6 +310,73 @@
             }
         }
 
+        async function findPoolCreationBlock(poolAddress, creationTimestamp) {
+            logToTerminal(`Starting binary search for exact creation block...`, 'info');
+            
+            // Estimate initial range based on timestamp
+            const referenceBlock = 23261760;
+            const referenceTime = 1757000000;
+            const secondsDiff = creationTimestamp - referenceTime;
+            const estimatedBlock = referenceBlock + Math.floor(secondsDiff / 12);
+            
+            // Search range: +/- 5000 blocks from estimate
+            let left = Math.max(1, estimatedBlock - 5000);
+            let right = estimatedBlock + 5000;
+            let firstBlockWithPool = null;
+            
+            logToTerminal(`Searching between blocks ${left} and ${right}`, 'comment');
+            logToTerminal(`Pool creation timestamp: ${new Date(creationTimestamp * 1000).toISOString()}`, 'comment');
+            
+            let iterations = 0;
+            const maxIterations = 30; // Prevent infinite loops
+            
+            while (left <= right && iterations < maxIterations) {
+                iterations++;
+                const mid = Math.floor((left + right) / 2);
+                
+                try {
+                    const url = `${V2_API}?chainId=1&blockNumber=${mid}`;
+                    const response = await fetch(url);
+                    
+                    if (!response.ok) {
+                        logToTerminal(`Block ${mid}: API error ${response.status}`, 'error');
+                        left = mid + 1;
+                        continue;
+                    }
+                    
+                    const pools = await response.json();
+                    const poolExists = pools.some(p => 
+                        p.pool.toLowerCase() === poolAddress.toLowerCase()
+                    );
+                    
+                    if (poolExists) {
+                        firstBlockWithPool = mid;
+                        right = mid - 1; // Pool exists, try earlier
+                        logToTerminal(`Block ${mid}: Pool EXISTS, searching earlier...`, 'success');
+                    } else {
+                        left = mid + 1; // Pool doesn't exist, try later
+                        logToTerminal(`Block ${mid}: Pool not found, searching later...`, 'comment');
+                    }
+                    
+                } catch (error) {
+                    logToTerminal(`Block ${mid}: Error - ${error.message}`, 'error');
+                    left = mid + 1;
+                }
+                
+                // Small delay to avoid rate limiting
+                await new Promise(resolve => setTimeout(resolve, 100));
+            }
+            
+            if (firstBlockWithPool) {
+                logToTerminal(`✓ Found exact creation block: ${firstBlockWithPool}`, 'success');
+                logToTerminal(`Binary search completed in ${iterations} iterations`, 'info');
+                return firstBlockWithPool;
+            } else {
+                logToTerminal(`✗ Could not find exact block, using estimate: ${estimatedBlock}`, 'warning');
+                return estimatedBlock;
+            }
+        }
+
         async function fetchPoolData() {
             const poolAddress = document.getElementById('poolAddress').value.trim();
             const days = parseInt(document.getElementById('days').value) || 30;
@@ -331,6 +399,23 @@
                 const poolData = await fetchCurrentPoolData(poolAddress);
                 if (!poolData) {
                     throw new Error('Pool not found. It may be inactive or not exist.');
+                }
+
+                // Find exact creation block if we have a creation timestamp
+                let creationBlock = null;
+                if (poolData.createdAt) {
+                    updateStatus('Finding exact pool creation block...');
+                    const creationTimestamp = parseInt(poolData.createdAt);
+                    creationBlock = await findPoolCreationBlock(poolAddress, creationTimestamp);
+                    
+                    // Store creation block in poolData for later use
+                    poolData.creationBlock = creationBlock;
+                    
+                    // Log creation block prominently
+                    logToTerminal(`\n═══════════════════════════════════════`, 'info');
+                    logToTerminal(`POOL CREATION BLOCK: ${creationBlock}`, 'success');
+                    logToTerminal(`Creation Date: ${new Date(creationTimestamp * 1000).toISOString()}`, 'info');
+                    logToTerminal(`═══════════════════════════════════════\n`, 'info');
                 }
 
                 updateStatus('Fetching historical prices...');
@@ -417,10 +502,15 @@
             startDate.setDate(startDate.getDate() - days);
             startDate.setHours(0, 0, 0, 0);
             
-            // Get pool creation date to avoid querying before it existed
+            // Get pool creation date and block to avoid querying before it existed
             const createdAt = poolData.createdAt ? new Date(parseInt(poolData.createdAt) * 1000) : null;
+            const creationBlock = poolData.creationBlock || null;
+            
             if (createdAt && createdAt > startDate) {
                 logToTerminal(`Pool created on ${createdAt.toISOString().split('T')[0]}, adjusting start date`, 'info');
+                if (creationBlock) {
+                    logToTerminal(`Using exact creation block #${creationBlock} for historical data`, 'success');
+                }
                 startDate.setTime(createdAt.getTime());
             }
             
@@ -451,8 +541,15 @@
                 const dateStr = currentDate.toISOString().split('T')[0];
                 updateStatus(`Fetching data for ${dateStr}...`);
                 
-                // Estimate block number for this date (midnight UTC)
-                const blockNumber = estimateBlockNumber(currentDate);
+                // Use exact creation block for the creation date, otherwise estimate
+                let blockNumber;
+                if (creationBlock && createdAt && 
+                    currentDate.toISOString().split('T')[0] === createdAt.toISOString().split('T')[0]) {
+                    blockNumber = creationBlock;
+                    logToTerminal(`Using exact creation block #${creationBlock} for ${dateStr}`, 'info');
+                } else {
+                    blockNumber = estimateBlockNumber(currentDate);
+                }
                 
                 try {
                     // Fetch pool data at this historical block
@@ -1063,6 +1160,13 @@
             document.getElementById('tokenPair').textContent = `${latestNav.token0Symbol}/${latestNav.token1Symbol}`;
             document.getElementById('poolAddr').textContent = pool.pool || pool.address;
             document.getElementById('feeBadge').textContent = `${((pool.fee || 0) / 1e18 * 10000).toFixed(2)} bps`;
+            
+            // Display creation block if available
+            if (pool.creationBlock) {
+                document.getElementById('creationBlock').textContent = `Created at block #${pool.creationBlock.toLocaleString()}`;
+            } else {
+                document.getElementById('creationBlock').textContent = '';
+            }
             
             // Update metrics
             document.getElementById('currentNav').textContent = `$${formatNumber(latestNav.nav)}`;
