@@ -317,8 +317,8 @@
             let estimatedBlock;
             
             try {
-                // Use Etherscan API to get block by timestamp (free tier allows this)
-                const etherscanUrl = `https://api.etherscan.io/api?module=block&action=getblocknobytime&timestamp=${creationTimestamp}&closest=after`;
+                // Use Etherscan API to get block by timestamp (with API key)
+                const etherscanUrl = `https://api.etherscan.io/api?module=block&action=getblocknobytime&timestamp=${creationTimestamp}&closest=after&apikey=K1HVQX1QC8WU2W8RZUC6PXQJH9I3IDGFUQ`;
                 logToTerminal(`Fetching block estimate from Etherscan...`, 'info');
                 
                 const etherscanResponse = await fetch(etherscanUrl);
