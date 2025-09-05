@@ -62,7 +62,23 @@ def init_database():
             
             # Load existing summaries into memory for fast access
             cursor.execute("SELECT * FROM pool_summaries ORDER BY updated_at DESC")
-            pool_summaries = [dict(row) for row in cursor.fetchall()] if cursor.description else []
+            rows = cursor.fetchall()
+            pool_summaries = []
+            if rows:
+                # Use column names from cursor.description
+                columns = [desc[0] for desc in cursor.description]
+                for row in rows:
+                    summary = dict(zip(columns, row))
+                    # Convert to frontend format
+                    if summary.get('pool_address'):
+                        summary['poolAddress'] = summary.pop('pool_address')
+                    if summary.get('current_nav'):
+                        summary['currentNAV'] = str(summary.pop('current_nav'))
+                    if summary.get('nav_apr'):
+                        summary['navAPR'] = summary.pop('nav_apr')
+                    if summary.get('updated_at'):
+                        summary['timestamp'] = summary['updated_at'].isoformat()
+                    pool_summaries.append(summary)
             print(f"Connected to PostgreSQL, loaded {len(pool_summaries)} existing pool summaries")
             
     except Exception as e:
