@@ -311,18 +311,37 @@
         }
 
         async function findPoolCreationBlock(poolAddress, creationTimestamp) {
-            logToTerminal(`Starting binary search for exact creation block...`, 'info');
+            logToTerminal(`Starting search for exact creation block...`, 'info');
             
-            // More accurate reference point (closer to the actual time)
-            // Block 20500000 was around timestamp 1723500000 (Aug 13, 2024)
-            const referenceBlock = 20500000;
-            const referenceTime = 1723500000;
-            const secondsDiff = creationTimestamp - referenceTime;
-            const estimatedBlock = referenceBlock + Math.floor(secondsDiff / 12);
+            // First try to get a more accurate starting point using Etherscan API
+            let estimatedBlock;
             
-            // Wider search range: +/- 10000 blocks from estimate (about 33 hours)
-            let left = Math.max(1, estimatedBlock - 10000);
-            let right = estimatedBlock + 10000;
+            try {
+                // Use Etherscan API to get block by timestamp (free tier allows this)
+                const etherscanUrl = `https://api.etherscan.io/api?module=block&action=getblocknobytime&timestamp=${creationTimestamp}&closest=after`;
+                logToTerminal(`Fetching block estimate from Etherscan...`, 'info');
+                
+                const etherscanResponse = await fetch(etherscanUrl);
+                const etherscanData = await etherscanResponse.json();
+                
+                if (etherscanData.status === '1' && etherscanData.result) {
+                    estimatedBlock = parseInt(etherscanData.result);
+                    logToTerminal(`✓ Etherscan returned block estimate: ${estimatedBlock}`, 'success');
+                } else {
+                    throw new Error('Etherscan API did not return a valid block');
+                }
+            } catch (error) {
+                // Fallback to manual calculation if Etherscan fails
+                logToTerminal(`Etherscan API failed, using manual calculation...`, 'warning');
+                const referenceBlock = 20500000;
+                const referenceTime = 1723500000;
+                const secondsDiff = creationTimestamp - referenceTime;
+                estimatedBlock = referenceBlock + Math.floor(secondsDiff / 12);
+            }
+            
+            // Now do binary search with a tighter range since we have a better estimate
+            let left = Math.max(1, estimatedBlock - 1000);  // Tighter range: +/- 1000 blocks
+            let right = estimatedBlock + 1000;
             let firstBlockWithPool = null;
             
             logToTerminal(`Estimated block: ${estimatedBlock} (initial guess)`, 'comment');
