@@ -313,22 +313,24 @@
         async function findPoolCreationBlock(poolAddress, creationTimestamp) {
             logToTerminal(`Starting binary search for exact creation block...`, 'info');
             
-            // Estimate initial range based on timestamp
-            const referenceBlock = 23261760;
-            const referenceTime = 1757000000;
+            // More accurate reference point (closer to the actual time)
+            // Block 20500000 was around timestamp 1723500000 (Aug 13, 2024)
+            const referenceBlock = 20500000;
+            const referenceTime = 1723500000;
             const secondsDiff = creationTimestamp - referenceTime;
             const estimatedBlock = referenceBlock + Math.floor(secondsDiff / 12);
             
-            // Search range: +/- 5000 blocks from estimate
-            let left = Math.max(1, estimatedBlock - 5000);
-            let right = estimatedBlock + 5000;
+            // Wider search range: +/- 10000 blocks from estimate (about 33 hours)
+            let left = Math.max(1, estimatedBlock - 10000);
+            let right = estimatedBlock + 10000;
             let firstBlockWithPool = null;
             
-            logToTerminal(`Searching between blocks ${left} and ${right}`, 'comment');
+            logToTerminal(`Estimated block: ${estimatedBlock} (initial guess)`, 'comment');
+            logToTerminal(`Search range: blocks ${left} to ${right}`, 'comment');
             logToTerminal(`Pool creation timestamp: ${new Date(creationTimestamp * 1000).toISOString()}`, 'comment');
             
             let iterations = 0;
-            const maxIterations = 30; // Prevent infinite loops
+            const maxIterations = 40; // Increase max iterations for wider range
             
             while (left <= right && iterations < maxIterations) {
                 iterations++;
@@ -372,7 +374,50 @@
                 logToTerminal(`Binary search completed in ${iterations} iterations`, 'info');
                 return firstBlockWithPool;
             } else {
-                logToTerminal(`✗ Could not find exact block, using estimate: ${estimatedBlock}`, 'warning');
+                // If we didn't find it, try expanding the search range
+                logToTerminal(`Pool not found in initial range, expanding search...`, 'warning');
+                
+                // Try a wider range
+                const widerLeft = Math.max(1, estimatedBlock - 50000);
+                const widerRight = estimatedBlock + 50000;
+                
+                logToTerminal(`Checking wider range: ${widerLeft} to ${widerRight}`, 'comment');
+                
+                // Do a quick check at some key points
+                const checkPoints = [
+                    estimatedBlock - 20000,
+                    estimatedBlock - 30000,
+                    estimatedBlock + 20000,
+                    estimatedBlock + 30000
+                ];
+                
+                for (const checkBlock of checkPoints) {
+                    if (checkBlock < 1) continue;
+                    
+                    try {
+                        const url = `${V2_API}?chainId=1&blockNumber=${checkBlock}`;
+                        const response = await fetch(url);
+                        
+                        if (response.ok) {
+                            const pools = await response.json();
+                            const poolExists = pools.some(p => 
+                                p.pool.toLowerCase() === poolAddress.toLowerCase()
+                            );
+                            
+                            if (poolExists) {
+                                logToTerminal(`✓ Found pool at checkpoint block ${checkBlock}`, 'success');
+                                logToTerminal(`Pool exists somewhere between original estimate and this block`, 'info');
+                                // Could do another binary search here if needed
+                                return checkBlock;
+                            }
+                        }
+                    } catch (error) {
+                        // Continue checking other points
+                    }
+                }
+                
+                logToTerminal(`✗ Could not find pool in extended search, using estimate: ${estimatedBlock}`, 'warning');
+                logToTerminal(`This pool may have been created at a very different time than expected`, 'comment');
                 return estimatedBlock;
             }
         }
