@@ -113,6 +113,18 @@
                         <div class="metric-value" id="totalFees">-</div>
                     </div>
                     <div class="metric">
+                        <div class="metric-label">Interest Earned (30d)</div>
+                        <div class="metric-value" id="interestEarned">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Interest Paid (30d)</div>
+                        <div class="metric-value" id="interestPaid">-</div>
+                    </div>
+                    <div class="metric">
+                        <div class="metric-label">Net Interest (30d)</div>
+                        <div class="metric-value" id="netInterest">-</div>
+                    </div>
+                    <div class="metric">
                         <div class="metric-label">Total NAV APR</div>
                         <div class="metric-value" id="navApr">-</div>
                     </div>
@@ -172,6 +184,7 @@
                     <button class="tab active" onclick="switchTab('chart')">NAV Chart</button>
                     <button class="tab" onclick="switchTab('returns')">Daily Returns</button>
                     <button class="tab" onclick="switchTab('volume')">Volume & Fees</button>
+                    <button class="tab" onclick="switchTab('interest')">Interest</button>
                     <button class="tab" onclick="switchTab('drawdown')">Drawdown</button>
                     <button class="tab" onclick="switchTab('table')">Daily Data</button>
                     <button class="tab" onclick="switchTab('composition')">Pool Composition</button>
@@ -215,6 +228,12 @@
                 <div id="volume-tab" class="tab-content">
                     <div class="chart-container">
                         <canvas id="volumeChart"></canvas>
+                    </div>
+                </div>
+
+                <div id="interest-tab" class="tab-content">
+                    <div class="chart-container">
+                        <canvas id="interestChart"></canvas>
                     </div>
                 </div>
 
@@ -440,9 +459,20 @@
                     const historicalPoolData = await fetchPoolDataAtBlock(poolAddress, blockNumber);
                     
                     let nav = 0;
+                    let interestEarnedDaily = 0;
+                    let interestPaidDaily = 0;
+                    
                     if (historicalPoolData && historicalPoolData.accountNav && historicalPoolData.accountNav.nav) {
                         // V2 API NAV in 8 decimals
                         nav = parseFloat(historicalPoolData.accountNav.nav) / 1e8;
+                        
+                        // Extract daily interest data if available
+                        if (historicalPoolData.interestEarned && historicalPoolData.interestEarned.total1d) {
+                            interestEarnedDaily = parseFloat(historicalPoolData.interestEarned.total1d) / 1e8;
+                        }
+                        if (historicalPoolData.interestPaid && historicalPoolData.interestPaid.total1d) {
+                            interestPaidDaily = parseFloat(historicalPoolData.interestPaid.total1d) / 1e8;
+                        }
                     }
                     
                     // Get volume data for this date
@@ -456,6 +486,9 @@
                         volume: dayVolume.volume,
                         fees: dayVolume.fees,
                         swaps: dayVolume.swaps,
+                        interestEarned: interestEarnedDaily,
+                        interestPaid: interestPaidDaily,
+                        netInterest: interestEarnedDaily - interestPaidDaily,
                         blockNumber: blockNumber,
                         token0Symbol,
                         token1Symbol,
@@ -1043,6 +1076,25 @@
             const totalFees = historical.reduce((sum, d) => sum + d.fees, 0);
             document.getElementById('totalFees').textContent = `$${formatNumber(totalFees)}`;
             
+            // Display interest metrics if available
+            if (pool.interestEarned && pool.interestPaid) {
+                // Interest values are in 8 decimals (like NAV)
+                const interestEarned30d = parseFloat(pool.interestEarned.total30d || 0) / 1e8;
+                const interestPaid30d = parseFloat(pool.interestPaid.total30d || 0) / 1e8;
+                const netInterest30d = interestEarned30d - interestPaid30d;
+                
+                document.getElementById('interestEarned').textContent = `$${formatNumber(interestEarned30d)}`;
+                document.getElementById('interestPaid').textContent = `$${formatNumber(interestPaid30d)}`;
+                
+                const netInterestElement = document.getElementById('netInterest');
+                netInterestElement.textContent = `$${formatNumber(Math.abs(netInterest30d))}`;
+                netInterestElement.className = `metric-value ${netInterest30d >= 0 ? 'green' : 'red'}`;
+            } else {
+                document.getElementById('interestEarned').textContent = '-';
+                document.getElementById('interestPaid').textContent = '-';
+                document.getElementById('netInterest').textContent = '-';
+            }
+            
             // Calculate Total NAV APR (first to last)
             if (historical.length > 1) {
                 const firstNav = historical[0].nav;
@@ -1205,6 +1257,7 @@
 
         let returnsChart = null;
         let volumeChart = null;
+        let interestChart = null;
         let drawdownChart = null;
         
         function switchTab(tab) {
@@ -1366,6 +1419,80 @@
                                     },
                                     ticks: {
                                         callback: (value) => `$${formatNumber(value)}`
+                                    }
+                                }
+                            }
+                        }
+                    });
+                }
+                
+                // Interest Chart
+                if (tab === 'interest') {
+                    const ctx = document.getElementById('interestChart').getContext('2d');
+                    
+                    if (interestChart) {
+                        interestChart.destroy();
+                    }
+                    
+                    interestChart = new Chart(ctx, {
+                        type: 'bar',
+                        data: {
+                            labels: historical.map(d => d.date),
+                            datasets: [{
+                                label: 'Interest Earned',
+                                data: historical.map(d => d.interestEarned || 0),
+                                backgroundColor: 'rgba(16, 185, 129, 0.6)',
+                                borderColor: '#10b981',
+                                borderWidth: 1,
+                                stack: 'separate'
+                            }, {
+                                label: 'Interest Paid',
+                                data: historical.map(d => -(d.interestPaid || 0)),
+                                backgroundColor: 'rgba(239, 68, 68, 0.6)',
+                                borderColor: '#ef4444',
+                                borderWidth: 1,
+                                stack: 'separate'
+                            }, {
+                                label: 'Net Interest',
+                                data: historical.map(d => d.netInterest || 0),
+                                type: 'line',
+                                borderColor: '#667eea',
+                                backgroundColor: 'rgba(102, 126, 234, 0.1)',
+                                borderWidth: 2,
+                                tension: 0.4,
+                                fill: true
+                            }]
+                        },
+                        options: {
+                            responsive: true,
+                            maintainAspectRatio: false,
+                            interaction: {
+                                mode: 'index',
+                                intersect: false,
+                            },
+                            plugins: {
+                                legend: { display: true },
+                                tooltip: {
+                                    callbacks: {
+                                        label: function(context) {
+                                            let label = context.dataset.label || '';
+                                            if (label) {
+                                                label += ': $';
+                                            }
+                                            if (context.parsed.y !== null) {
+                                                const value = Math.abs(context.parsed.y);
+                                                label += formatNumber(value);
+                                            }
+                                            return label;
+                                        }
+                                    }
+                                }
+                            },
+                            scales: {
+                                y: {
+                                    beginAtZero: true,
+                                    ticks: {
+                                        callback: (value) => `$${formatNumber(Math.abs(value))}`
                                     }
                                 }
                             }
