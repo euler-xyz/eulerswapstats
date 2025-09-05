@@ -206,6 +206,7 @@
                         <thead>
                             <tr>
                                 <th>Date</th>
+                                <th>Block</th>
                                 <th>NAV (USD)</th>
                                 <th>Change</th>
                                 <th>Volume</th>
@@ -577,11 +578,11 @@
             const creationBlock = poolData.creationBlock || null;
             
             if (createdAt && createdAt > startDate) {
-                logToTerminal(`Pool created on ${createdAt.toISOString().split('T')[0]}, adjusting start date`, 'info');
-                if (creationBlock) {
-                    logToTerminal(`Using exact creation block #${creationBlock} for historical data`, 'success');
-                }
+                logToTerminal(`Pool created on ${createdAt.toISOString().split('T')[0]} at block #${creationBlock}`, 'info');
+                // Set start date to creation date + 1 day to ensure pool exists in data
                 startDate.setTime(createdAt.getTime());
+                startDate.setHours(0, 0, 0, 0);
+                logToTerminal(`Starting timeseries from ${startDate.toISOString().split('T')[0]} (pool creation)`, 'success');
             }
             
             const historicalData = [];
@@ -611,13 +612,24 @@
                 const dateStr = currentDate.toISOString().split('T')[0];
                 updateStatus(`Fetching data for ${dateStr}...`);
                 
-                // Use exact creation block for the creation date, otherwise estimate
+                // Calculate block number based on days from creation
                 let blockNumber;
-                if (creationBlock && createdAt && 
-                    currentDate.toISOString().split('T')[0] === createdAt.toISOString().split('T')[0]) {
-                    blockNumber = creationBlock;
-                    logToTerminal(`Using exact creation block #${creationBlock} for ${dateStr}`, 'info');
+                if (creationBlock && createdAt) {
+                    // Calculate days difference from creation date
+                    const daysDiff = Math.floor((currentDate - createdAt) / (1000 * 60 * 60 * 24));
+                    
+                    if (daysDiff === 0) {
+                        // Use exact creation block for the creation date
+                        blockNumber = creationBlock;
+                        logToTerminal(`Using exact creation block #${creationBlock} for ${dateStr} (pool creation)`, 'info');
+                    } else {
+                        // Calculate block based on ~7200 blocks per day from creation block
+                        const blocksPerDay = 7200; // ~12 seconds per block
+                        blockNumber = creationBlock + (daysDiff * blocksPerDay);
+                        logToTerminal(`Using block #${blockNumber} for ${dateStr} (${daysDiff} days from creation)`, 'debug');
+                    }
                 } else {
+                    // Fallback to estimation if we don't have creation block
                     blockNumber = estimateBlockNumber(currentDate);
                 }
                 
@@ -1412,9 +1424,10 @@
                 }
                 
                 row.insertCell(0).textContent = day.date;
-                row.insertCell(1).textContent = `$${formatNumber(day.nav)}`;
+                row.insertCell(1).textContent = day.blockNumber ? day.blockNumber.toLocaleString() : '-';
+                row.insertCell(2).textContent = `$${formatNumber(day.nav)}`;
                 
-                const changeCell = row.insertCell(2);
+                const changeCell = row.insertCell(3);
                 if (day.navChangePercent !== 0 || index > 0) {
                     const change = day.navChangePercent || 0;
                     changeCell.textContent = `${change >= 0 ? '+' : ''}${change.toFixed(2)}%`;
@@ -1423,11 +1436,11 @@
                     changeCell.textContent = '-';
                 }
                 
-                row.insertCell(3).textContent = `$${formatNumber(day.volume)}`;
-                row.insertCell(4).textContent = `$${formatNumber(day.fees)}`;
+                row.insertCell(4).textContent = `$${formatNumber(day.volume)}`;
+                row.insertCell(5).textContent = `$${formatNumber(day.fees)}`;
                 
                 // Interest Earned column
-                const earnedCell = row.insertCell(5);
+                const earnedCell = row.insertCell(6);
                 if (day.interestEarned) {
                     earnedCell.textContent = `$${formatNumber(day.interestEarned)}`;
                     earnedCell.style.color = '#10b981';
@@ -1436,7 +1449,7 @@
                 }
                 
                 // Interest Paid column
-                const paidCell = row.insertCell(6);
+                const paidCell = row.insertCell(7);
                 if (day.interestPaid) {
                     paidCell.textContent = `$${formatNumber(day.interestPaid)}`;
                     paidCell.style.color = '#ef4444';
@@ -1445,7 +1458,7 @@
                 }
                 
                 // Net Interest column
-                const netCell = row.insertCell(7);
+                const netCell = row.insertCell(8);
                 if (day.netInterest !== undefined) {
                     netCell.textContent = `$${formatNumber(Math.abs(day.netInterest))}`;
                     netCell.style.color = day.netInterest >= 0 ? '#10b981' : '#ef4444';
@@ -1453,7 +1466,7 @@
                     netCell.textContent = '-';
                 }
                 
-                row.insertCell(8).textContent = day.swaps || 0;
+                row.insertCell(9).textContent = day.swaps || 0;
             });
         }
 
@@ -1809,9 +1822,10 @@
             if (!currentData) return;
             
             const csv = [
-                ['Date', 'NAV (USD)', 'Volume', 'Fees', 'Interest Earned', 'Interest Paid', 'Net Interest', 'Swaps'],
+                ['Date', 'Block', 'NAV (USD)', 'Volume', 'Fees', 'Interest Earned', 'Interest Paid', 'Net Interest', 'Swaps'],
                 ...currentData.historical.map(d => [
                     d.date,
+                    d.blockNumber || '',
                     d.nav,
                     d.volume,
                     d.fees,
