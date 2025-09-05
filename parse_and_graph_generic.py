@@ -201,22 +201,22 @@ def parse_json_data(filename: str) -> Tuple[pd.DataFrame, float, Dict]:
     
     data = []
     for entry in json_data:
-        # Parse with detected field names
-        token0_price = entry.get(token0_price_field, 0)
-        token1_price = entry.get(token1_price_field, 0)
+        # Parse with detected field names, handling null values
+        token0_price = entry.get(token0_price_field) or 0
+        token1_price = entry.get(token1_price_field) or 0
         
         data.append({
             'date': datetime.strptime(entry['date'], '%Y-%m-%d'),
-            'block': entry.get('block', 0),
-            'nav_usd': entry.get('nav_usd', entry.get('nav', 0)),  # Support both field names
-            'token0_net': entry.get(token0_net_field, 0),
-            'token1_net': entry.get(token1_net_field, 0),
+            'block': entry.get('block') or 0,
+            'nav_usd': entry.get('nav_usd') or entry.get('nav') or 0,  # Support both field names
+            'token0_net': entry.get(token0_net_field) or 0,
+            'token1_net': entry.get(token1_net_field) or 0,
             'token0_price': token0_price,
             'token1_price': token1_price,
-            'nav_quote': entry.get('nav_in_quote', entry.get('nav_weth', entry.get('nav_quote', 0))),
+            'nav_quote': entry.get('nav_in_quote') or entry.get('nav_weth') or entry.get('nav_quote') or 0,
             'price_ratio': token0_price / token1_price if token1_price > 0 else 0,
-            'daily_volume': entry.get('daily_volume', entry.get('volume_usd', 0)),  # Support both field names
-            'swaps': entry.get('swaps', entry.get('swap_count', 0)),  # Support both field names
+            'daily_volume': entry.get('daily_volume') or entry.get('volume_usd') or 0,  # Support both field names
+            'swaps': entry.get('swaps') or entry.get('swap_count') or 0,  # Support both field names
             'token0_symbol': token0_symbol,
             'token1_symbol': token1_symbol
         })
