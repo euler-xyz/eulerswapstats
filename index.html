@@ -1133,7 +1133,7 @@
             document.getElementById('minNav').textContent = `$${formatNumber(minNav)}`;
             
             // Store summary data on server
-            storeSummaryData(pool.address, pool, historical);
+            storeSummaryData(pool.pool || pool.address, pool, historical);
             
             // Calculate NAV volatility (standard deviation of daily returns)
             const dailyReturns = [];
@@ -1573,9 +1573,9 @@
                     }
                 }
                 
-                // Get token symbols
-                const token0Symbol = poolData.token0?.symbol || 'Unknown';
-                const token1Symbol = poolData.token1?.symbol || 'Unknown';
+                // Get token symbols from historical data (already fetched)
+                const token0Symbol = historical.length > 0 ? historical[0].token0Symbol : 'Unknown';
+                const token1Symbol = historical.length > 0 ? historical[0].token1Symbol : 'Unknown';
                 const tokens = `${token0Symbol}/${token1Symbol}`;
                 
                 // Send summary to server
