@@ -207,6 +207,9 @@
                                 <th>Change</th>
                                 <th>Volume</th>
                                 <th>Fees</th>
+                                <th>Interest Earned</th>
+                                <th>Interest Paid</th>
+                                <th>Net Interest</th>
                                 <th>Swaps</th>
                             </tr>
                         </thead>
@@ -1419,7 +1422,35 @@
                 
                 row.insertCell(3).textContent = `$${formatNumber(day.volume)}`;
                 row.insertCell(4).textContent = `$${formatNumber(day.fees)}`;
-                row.insertCell(5).textContent = day.swaps || 0;
+                
+                // Interest Earned column
+                const earnedCell = row.insertCell(5);
+                if (day.interestEarned) {
+                    earnedCell.textContent = `$${formatNumber(day.interestEarned)}`;
+                    earnedCell.style.color = '#10b981';
+                } else {
+                    earnedCell.textContent = '-';
+                }
+                
+                // Interest Paid column
+                const paidCell = row.insertCell(6);
+                if (day.interestPaid) {
+                    paidCell.textContent = `$${formatNumber(day.interestPaid)}`;
+                    paidCell.style.color = '#ef4444';
+                } else {
+                    paidCell.textContent = '-';
+                }
+                
+                // Net Interest column
+                const netCell = row.insertCell(7);
+                if (day.netInterest !== undefined) {
+                    netCell.textContent = `$${formatNumber(Math.abs(day.netInterest))}`;
+                    netCell.style.color = day.netInterest >= 0 ? '#10b981' : '#ef4444';
+                } else {
+                    netCell.textContent = '-';
+                }
+                
+                row.insertCell(8).textContent = day.swaps || 0;
             });
         }
 
@@ -1775,12 +1806,15 @@
             if (!currentData) return;
             
             const csv = [
-                ['Date', 'NAV (USD)', 'Volume', 'Fees', 'Swaps'],
+                ['Date', 'NAV (USD)', 'Volume', 'Fees', 'Interest Earned', 'Interest Paid', 'Net Interest', 'Swaps'],
                 ...currentData.historical.map(d => [
                     d.date,
                     d.nav,
                     d.volume,
                     d.fees,
+                    d.interestEarned || 0,
+                    d.interestPaid || 0,
+                    d.netInterest || 0,
                     d.swaps
                 ])
             ].map(row => row.join(',')).join('\n');
