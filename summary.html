@@ -1,0 +1,264 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>EulerSwap Pool Summary</title>
+    <style>
+        * { margin: 0; padding: 0; box-sizing: border-box; }
+        body { 
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif; 
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%); 
+            min-height: 100vh; 
+            padding: 20px; 
+        }
+        .container { max-width: 1400px; margin: 0 auto; }
+        .header { 
+            text-align: center; 
+            color: white; 
+            margin-bottom: 30px; 
+        }
+        h1 { font-size: 2.5em; margin-bottom: 10px; }
+        .subtitle { opacity: 0.9; }
+        .card { 
+            background: white; 
+            border-radius: 12px; 
+            padding: 20px; 
+            margin-bottom: 20px; 
+            box-shadow: 0 10px 30px rgba(0,0,0,0.2); 
+        }
+        .summary-table {
+            width: 100%;
+            border-collapse: collapse;
+        }
+        .summary-table th,
+        .summary-table td {
+            padding: 12px;
+            text-align: left;
+            border-bottom: 1px solid #e0e0e0;
+        }
+        .summary-table th {
+            background: #f8f8f8;
+            font-weight: 600;
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+            position: sticky;
+            top: 0;
+            z-index: 10;
+        }
+        .summary-table tr:hover {
+            background: #f8f8f8;
+        }
+        .pool-address {
+            font-family: monospace;
+            font-size: 11px;
+            color: #666;
+        }
+        .token-pair {
+            font-weight: 600;
+            color: #333;
+        }
+        .metric {
+            font-weight: 600;
+            text-align: right;
+        }
+        .metric.positive {
+            color: #10b981;
+        }
+        .metric.negative {
+            color: #ef4444;
+        }
+        .timestamp {
+            color: #999;
+            font-size: 12px;
+        }
+        .refresh-btn {
+            padding: 10px 20px;
+            background: #667eea;
+            color: white;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            margin-bottom: 20px;
+        }
+        .refresh-btn:hover {
+            background: #5a67d8;
+        }
+        .loading {
+            text-align: center;
+            padding: 40px;
+            color: #666;
+        }
+        .empty {
+            text-align: center;
+            padding: 60px;
+            color: #999;
+        }
+        .stats {
+            display: flex;
+            gap: 20px;
+            margin-bottom: 20px;
+        }
+        .stat-card {
+            flex: 1;
+            background: #f8f8f8;
+            padding: 15px;
+            border-radius: 8px;
+            text-align: center;
+        }
+        .stat-label {
+            color: #666;
+            font-size: 12px;
+            text-transform: uppercase;
+            margin-bottom: 5px;
+        }
+        .stat-value {
+            font-size: 24px;
+            font-weight: bold;
+            color: #333;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>📊 EulerSwap Pool Summary</h1>
+            <p class="subtitle">Overview of all analyzed pools</p>
+        </div>
+
+        <div class="card">
+            <button class="refresh-btn" onclick="loadSummaries()">🔄 Refresh</button>
+            
+            <div class="stats" id="stats" style="display: none;">
+                <div class="stat-card">
+                    <div class="stat-label">Total Pools</div>
+                    <div class="stat-value" id="totalPools">0</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Average APR</div>
+                    <div class="stat-value" id="avgAPR">0%</div>
+                </div>
+                <div class="stat-card">
+                    <div class="stat-label">Total NAV</div>
+                    <div class="stat-value" id="totalNAV">$0</div>
+                </div>
+            </div>
+
+            <div id="loading" class="loading" style="display: none;">
+                Loading summaries...
+            </div>
+
+            <div id="empty" class="empty">
+                No pool summaries yet. Analyze some pools first!
+            </div>
+
+            <div id="tableContainer" style="display: none;">
+                <table class="summary-table">
+                    <thead>
+                        <tr>
+                            <th>Pool Address</th>
+                            <th>Tokens</th>
+                            <th>Current NAV</th>
+                            <th>NAV APR</th>
+                            <th>Last Updated</th>
+                        </tr>
+                    </thead>
+                    <tbody id="summaryBody">
+                    </tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        async function loadSummaries() {
+            const loading = document.getElementById('loading');
+            const empty = document.getElementById('empty');
+            const tableContainer = document.getElementById('tableContainer');
+            const stats = document.getElementById('stats');
+            
+            loading.style.display = 'block';
+            empty.style.display = 'none';
+            tableContainer.style.display = 'none';
+            stats.style.display = 'none';
+
+            try {
+                const response = await fetch('/api/summaries');
+                const summaries = await response.json();
+
+                loading.style.display = 'none';
+
+                if (summaries.length === 0) {
+                    empty.style.display = 'block';
+                    return;
+                }
+
+                // Calculate stats
+                let totalNAV = 0;
+                let totalAPR = 0;
+                let validAPRCount = 0;
+
+                summaries.forEach(s => {
+                    if (s.currentNAV) {
+                        totalNAV += parseFloat(s.currentNAV);
+                    }
+                    if (s.navAPR && !isNaN(parseFloat(s.navAPR))) {
+                        totalAPR += parseFloat(s.navAPR);
+                        validAPRCount++;
+                    }
+                });
+
+                // Update stats
+                document.getElementById('totalPools').textContent = summaries.length;
+                document.getElementById('avgAPR').textContent = validAPRCount > 0 
+                    ? (totalAPR / validAPRCount).toFixed(2) + '%' 
+                    : 'N/A';
+                document.getElementById('totalNAV').textContent = '$' + totalNAV.toLocaleString(undefined, {
+                    minimumFractionDigits: 2,
+                    maximumFractionDigits: 2
+                });
+
+                // Populate table
+                const tbody = document.getElementById('summaryBody');
+                tbody.innerHTML = '';
+
+                summaries.forEach(summary => {
+                    const row = document.createElement('tr');
+                    
+                    const apr = parseFloat(summary.navAPR);
+                    const aprClass = apr > 0 ? 'positive' : apr < 0 ? 'negative' : '';
+                    
+                    row.innerHTML = `
+                        <td class="pool-address">${summary.poolAddress || 'N/A'}</td>
+                        <td class="token-pair">${summary.tokens || 'Unknown'}</td>
+                        <td class="metric">$${parseFloat(summary.currentNAV || 0).toLocaleString(undefined, {
+                            minimumFractionDigits: 2,
+                            maximumFractionDigits: 2
+                        })}</td>
+                        <td class="metric ${aprClass}">${summary.navAPR || 'N/A'}%</td>
+                        <td class="timestamp">${summary.timestamp ? new Date(summary.timestamp).toLocaleString() : 'N/A'}</td>
+                    `;
+                    
+                    tbody.appendChild(row);
+                });
+
+                stats.style.display = 'flex';
+                tableContainer.style.display = 'block';
+
+            } catch (error) {
+                loading.style.display = 'none';
+                empty.style.display = 'block';
+                empty.innerHTML = `<p>Error loading summaries: ${error.message}</p>`;
+            }
+        }
+
+        // Load summaries on page load
+        loadSummaries();
+
+        // Auto-refresh every 30 seconds
+        setInterval(loadSummaries, 30000);
+    </script>
+</body>
+</html>

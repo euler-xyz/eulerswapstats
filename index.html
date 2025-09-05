@@ -61,6 +61,9 @@
         <div class="header">
             <h1>🌊 EulerSwap NAV Tracker</h1>
             <p class="subtitle">Track Net Asset Value for any EulerSwap pool</p>
+            <p style="margin-top: 10px;">
+                <a href="/summary.html" style="color: white; text-decoration: underline;">View Pool Summary →</a>
+            </p>
         </div>
 
         <div class="card" style="background: #fef3c7; border: 1px solid #f59e0b; display: none;" id="corsNotice">
@@ -1077,6 +1080,9 @@
             document.getElementById('maxNav').textContent = `$${formatNumber(maxNav)}`;
             document.getElementById('minNav').textContent = `$${formatNumber(minNav)}`;
             
+            // Store summary data on server
+            storeSummaryData(pool.address, pool, historical);
+            
             // Calculate NAV volatility (standard deviation of daily returns)
             const dailyReturns = [];
             for (let i = 1; i < historical.length; i++) {
@@ -1422,6 +1428,51 @@
                         }
                     });
                 }
+            }
+        }
+
+        async function storeSummaryData(poolAddress, poolData, historical) {
+            try {
+                // Get current NAV and APR values
+                const currentNAV = historical.length > 0 ? historical[historical.length - 1].nav : 0;
+                
+                let navAPR = 'N/A';
+                if (historical.length > 1) {
+                    const firstNav = historical[0].nav;
+                    const lastNav = historical[historical.length - 1].nav;
+                    const days = historical.length;
+                    if (firstNav > 0) {
+                        navAPR = ((Math.pow(lastNav / firstNav, 365 / days) - 1) * 100).toFixed(2);
+                    }
+                }
+                
+                // Get token symbols
+                const token0Symbol = poolData.token0?.symbol || 'Unknown';
+                const token1Symbol = poolData.token1?.symbol || 'Unknown';
+                const tokens = `${token0Symbol}/${token1Symbol}`;
+                
+                // Send summary to server
+                const summaryData = {
+                    poolAddress: poolAddress,
+                    tokens: tokens,
+                    currentNAV: currentNAV.toFixed(2),
+                    navAPR: navAPR
+                };
+                
+                const response = await fetch('/api/store-summary', {
+                    method: 'POST',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    },
+                    body: JSON.stringify(summaryData)
+                });
+                
+                const result = await response.json();
+                if (result.success) {
+                    console.log('Summary stored successfully');
+                }
+            } catch (error) {
+                console.error('Failed to store summary:', error);
             }
         }
 
